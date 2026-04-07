@@ -5,7 +5,7 @@ import h5py
 from tqdm import tqdm
 from PIL import Image
 import shutil
-freecad_base = "/data/1bali/miniforge3/envs/vtk_offscreen"
+freecad_base = "/data/1bali/GReFEM_env"
 # Append FreeCAD's Python library paths
 sys.path.append(os.path.join(freecad_base, "lib"))   # core FreeCAD libraries
 sys.path.append(os.path.join(freecad_base, "Mod"))   # FreeCAD Python modules (Part, Mesh, etc.)
