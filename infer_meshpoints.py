@@ -15,7 +15,7 @@ import sys
 
 if __name__ == '__main__':
     
-    parent_dir = '/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/test_meshes_rebuttal_29.03.2026'
+    parent_dir = '/data/1bali/GReFEM/test_meshes_7.04.2026'
     CAD_file_name = '00210076'
     
     parser = argparse.ArgumentParser(description="Run multiple experiments to infer orthographic views and identify stress concentration areas using LLM.")
@@ -393,9 +393,9 @@ if __name__ == '__main__':
         print(f'No points detected for refinement for {os.path.basename(mesh_path)} with experiment {experiment_name}')
     else:
         print("Rendering Output Views with Meshpoints...")
-        # render_mesh_views(mesh_path, output_dir=f'{parent_dir}/{cad_object}/renders_pyvista_with_meshpoints_{experiment_name}', 
-        #             n_azimuth=12, n_elevation=3, orthographic=False, 
-        #             points_3d=mark_points_CH + mark_points_ICE, verbose=True, add_axes=False)
+        render_mesh_views(mesh_path, output_dir=f'{parent_dir}/{cad_object}/renders_pyvista_with_meshpoints_{experiment_name}', 
+                    n_azimuth=12, n_elevation=3, orthographic=False, 
+                    points_3d=mark_points_CH + mark_points_ICE, verbose=True, add_axes=False)
 
     print(f'Pipeline completed successfully.')
 
