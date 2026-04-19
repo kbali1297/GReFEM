@@ -1,4 +1,5 @@
-import os
+api_key = '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'
+import os, sys
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["OMP_NUM_THREADS"]       = "1"
 os.environ["MKL_NUM_THREADS"]       = "1"
@@ -9,7 +10,22 @@ import cv2
 import pyvista as pv
 import gmsh
 import meshio
+from tqdm import tqdm
+from general_prompts import *
+import requests
+import base64
+from generate_renders import render_mesh_views, render_mesh_views_with_load
 
+def extract_az_el_from_viewpath(view_path):
+    # Example view_path: '.../renders/view_e-30_a45.png'
+    filename = os.path.basename(view_path)
+    name_part = filename.split('.')[0].split('_')[0]  # 'view_e-30_a45'
+    
+    # Extract el and az using string manipulation
+    el_str = name_part.split('e')[1].split('_')[0]  # '-30'
+    az_str = name_part.split('a')[1]  # '45'
+    
+    return float(el_str), float(az_str)
 
 def pixel_to_mesh(cam_pos, F_pos, u, v, up_cam_vec, img_H, img_W,
                   fov_in_degrees=75, parallel_scale=None, mesh=None,
@@ -656,26 +672,32 @@ def add_circle_pts(circle, store_array):
         yc + r * SIN_T
     ))
 
-    if not store_array['circles']:
-        store_array['circles'].append(circle)
-        store_array['pts'].extend(circle_pts)
-        return store_array
+    try:
+        if not store_array['circles']:
+            store_array['circles'].append(circle)
+            store_array['pts'].extend(circle_pts)
+            return store_array
 
-    # extract centers & radii in one pass
-    centers = np.array([[c['xc'], c['yc']] for c in store_array['circles']])
-    radii   = np.array([c['r'] for c in store_array['circles']])
+        # extract centers & radii in one pass
+        centers = np.array([[c['xc'], c['yc']] for c in store_array['circles']])
+        radii   = np.array([c['r'] for c in store_array['circles']])
 
-    # vectorized distances
-    deltas = centers - np.array([xc, yc])
-    dists = np.sqrt(np.sum(deltas * deltas, axis=1))
+        # vectorized distances
+        deltas = centers - np.array([xc, yc])
+        dists = np.sqrt(np.sum(deltas * deltas, axis=1))
 
-    min_idx = np.argmin(dists)
+        min_idx = np.argmin(dists)
 
-    if dists[min_idx] > 10 or abs(radii[min_idx] - r) > 10:
-        store_array['circles'].append(circle)
-        store_array['pts'].extend(circle_pts)
+        if dists[min_idx] > 10 or abs(radii[min_idx] - r) > 10:
+            store_array['circles'].append(circle)
+            store_array['pts'].extend(circle_pts)
+
+        
+    except:
+        store_array.extend(circle_pts)
 
     return store_array
+
 
 
 import cv2
@@ -895,14 +917,12 @@ def detect_all_circles_cv2_1(image_path, min_arc_ratio=0.2): # 1. Lowered to 0.2
     return circles
 
 
-def detect_all_circles_cv2_(image_path, min_arc_ratio=0.4):
+def detect_all_circles_cv2_(image_path, min_arc_ratio=0.2):
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     h, w = img.shape
     edges = cv2.Canny(
           cv2.GaussianBlur(img, (7,7), 1.5),
           80, 160)
-    
-    
     
     if np.any(edges)==False:
         edges = cv2.Canny(
@@ -1008,438 +1028,6 @@ def mark_spots_in_image(img_path, spot_radius=1, spot_color=(0, 0, 255), spot_po
     cv2.imwrite(output_img_path, img)
 
     return output_img_path
-
-def generate_or_refine_mesh_(
-    step_or_mesh_path,
-    points_of_interest=[],
-    status=None,
-    refinement_levels=0,
-    h_min=0.5,
-    h_max=2.0,
-    suffix="",
-    out_msh=None,
-    verbose=True
-):
-    """
-    Unified meshing function:
-    - If create_initial_mesh=True → generates a tetrahedral mesh from CAD (STEP/STP/IGES/BREP/STL/OBJ)
-    - Else → loads an existing .msh and progressively refines it.
-
-    Afterward:
-    - Applies `refinement_levels` global refinements (hierarchical splitting).
-    - Applies local refinement around points_of_interest.
-
-    Parameters
-    ----------
-    step_or_mesh_path : str
-        CAD file (STEP/STL/OBJ) or existing .msh mesh.
-    points_of_interest : list or array (N,3)
-        Points where local refinement is desired.
-    create_initial_mesh : bool
-        True → read CAD and mesh from scratch.
-        False → read .msh and refine it.
-    initial_hmin, initial_hmax : float
-        Global mesh size when generating from CAD.
-    refinement_levels : int
-        Number of global refinement passes of Mesh.Refine().
-    local_hmin, local_hmax : float
-        Adaptive refinement size near points.
-    """
-
-    points_of_interest = np.asarray(points_of_interest, float)
-
-    # ------------ Output path ------------
-    if out_msh is None:
-        base, _ = os.path.splitext(step_or_mesh_path)
-        out_msh = base.split('~')[0] + f"~{suffix}.msh"
-    out_msh = os.path.abspath(out_msh)
-
-    ext = os.path.splitext(step_or_mesh_path)[1].lower()
-    is_occ_cad = ext in [".step", ".stp", ".iges", ".igs", ".brep"]
-    is_surface_mesh = ext in [".stl", ".obj"]
-
-
-
-    gmsh.initialize()
-
-
-    #gmsh.finalize()
-
-    if verbose:
-        gmsh.option.setNumber("General.Terminal", 1)
-    else:
-        gmsh.option.setNumber("General.Terminal", 0)
-        gmsh.option.setNumber("General.Verbosity", 0)
-
-    if not is_occ_cad and not is_surface_mesh:
-        raise ValueError("Input file is not a valid format; cannot create a fresh mesh.")
-
-    if verbose: print(f"[gmsh] Creating initial mesh from {ext}: {step_or_mesh_path}")
-    gmsh.open(step_or_mesh_path)
-
-    if is_occ_cad:
-        gmsh.model.occ.synchronize()
-
-        vols = gmsh.model.getEntities(dim=3)
-        if len(vols) == 0:
-            surfaces = gmsh.model.occ.getEntities(dim=2)
-            surf_ids = [s[1] for s in surfaces]
-            sl = gmsh.model.occ.addSurfaceLoop(surf_ids)
-            gmsh.model.occ.addVolume([sl])
-            gmsh.model.occ.synchronize()
-
-    elif is_surface_mesh:
-        # OBJ / STL → discrete geometry
-        # gmsh.model.mesh.classifySurfaces(
-        #     angle=40 * np.pi / 180,
-        #     boundary=True,
-        #     forceParametrizablePatches=True,
-        #     includeBoundary=True
-        # )
-        gmsh.model.mesh.classifySurfaces(
-            40 * np.pi / 180,  # angle in radians
-            boundary=True,
-            #includeBoundary=True
-        )
-        gmsh.model.mesh.createGeometry()
-
-
-    # =====================================================================
-    # CASE 1 — CREATE INITIAL MESH FROM CAD FILE
-    # =====================================================================
-    if status == 'create_initial_mesh':
-
-        # Global mesh size
-        gmsh.option.setNumber("Mesh.CharacteristicLengthMin", h_max)
-        gmsh.option.setNumber("Mesh.CharacteristicLengthMax", h_max)
-
-    # =====================================================================
-    # CASE 2 — LOAD MESH AND DO PROGRESSIVE REFINEMENT
-    # =====================================================================
-    elif status == 'load_mesh':
-        if ext != ".msh":
-            raise ValueError("Input file must be a .msh if status=load_mesh")
-
-        if verbose: print(f"[gmsh] Loading existing mesh: {step_or_mesh_path}")
-        gmsh.open(step_or_mesh_path)
-
-    # =====================================================================
-    # GLOBAL PROGRESSIVE REFINEMENT
-    # =====================================================================
-    if refinement_levels > 0 and status in ['create_initial_mesh', 'load_mesh']:
-        gmsh.model.mesh.generate(3)
-        if verbose or 1:##testing
-            print(f"[gmsh] Applying {refinement_levels} global refinement passes...")
-
-        for level in range(refinement_levels):
-            if verbose or 1:##testing
-                print(f"  - Global refine pass {level+1}/{refinement_levels}")
-            
-            gmsh.model.mesh.refine()
-
-    # =====================================================================
-    # LOCAL ADAPTIVE REFINEMENT NEAR POINTS OF INTEREST
-    # =====================================================================
-    else:
-        if verbose:
-            print(f"[gmsh] Adding local refinement near {len(points_of_interest)} points.")
-
-        #gmsh.model.occ.synchronize()
-
-            # 1. Disable global overrides
-        gmsh.option.setNumber("Mesh.CharacteristicLengthMin", h_min)
-        gmsh.option.setNumber("Mesh.CharacteristicLengthMax", h_max)
-        #gmsh.option.setNumber("Mesh.MeshSizeFromBoundary", 0)
-        
-        # 2. Clear existing mesh
-        gmsh.model.mesh.clear()
-
-        pt_tags = []
-        #top_faces, bottom_faces = dete
-        xmin, ymin, zmin, xmax, ymax, zmax = gmsh.model.getBoundingBox(-1, -1)  # -1,-1 = whole model
-        tol = 1e-6 * (ymax - ymin)  # Relative tolerance for "very top/bottom"
-        DistMin = 2.0 * h_min
-        DistMax = 4.0 * h_min
-
-        # Conservative buffer to account for mesh grading & geometry tolerances
-        safety = 2 * h_min
-        exclude_dist = DistMax + safety
-        ignored_pois = []
-        for p in points_of_interest:
-            y = float(p[1])
-            if ymin + exclude_dist < y < ymax - exclude_dist:  # Exclude near-extremes
-                tag = gmsh.model.geo.addPoint(float(p[0]), float(p[1]), float(p[2]))
-                pt_tags.append(tag)
-            else:
-                ignored_pois.append(p)
-            #tag = gmsh.model.geo.addPoint(float(p[0]), float(p[1]), float(p[2]))
-            # pt_tags.append(tag)
-        gmsh.model.geo.synchronize()
-
-        print(f'Ignored {len(ignored_pois)} POIS: {ignored_pois[:5]} ....')
-        # Distance field → threshold local refinement
-        f_dist = gmsh.model.mesh.field.add("Distance")
-        gmsh.model.mesh.field.setNumbers(f_dist, "PointsList", pt_tags)
-
-        f_th = gmsh.model.mesh.field.add("Threshold")
-        gmsh.model.mesh.field.setNumber(f_th, "InField", f_dist)
-        gmsh.model.mesh.field.setNumber(f_th, "SizeMin", h_min)
-        gmsh.model.mesh.field.setNumber(f_th, "SizeMax", h_max)
-        gmsh.model.mesh.field.setNumber(f_th, "DistMin", DistMin)
-        gmsh.model.mesh.field.setNumber(f_th, "DistMax", DistMax)
-
-        gmsh.model.mesh.field.setAsBackgroundMesh(f_th)
-
-        gmsh.model.mesh.generate(3)
-        # gmsh.model.mesh.refine()
-
-    # =====================================================================
-    # WRITE OUTPUT
-    # =====================================================================
-
-    
-    ## Add volume and surface tags
-    vols = gmsh.model.getEntities(dim=3)
-    vol_ids = [v[1] for v in vols]
-    gmsh.model.addPhysicalGroup(3, vol_ids, tag=1)
-    gmsh.model.setPhysicalName(3, 1, "volume")
-
-    surfaces = gmsh.model.getEntities(dim=2)
-    surf_ids = [s[1] for s in surfaces]
-    gmsh.model.addPhysicalGroup(2, surf_ids, tag=2)
-    gmsh.model.setPhysicalName(2, 2, "boundary")
-    
-    os.makedirs(os.path.dirname(out_msh), exist_ok=True)
-    gmsh.write(out_msh)
-    if verbose:
-        print(f"[gmsh] Wrote final mesh to {out_msh}")
-    
-    gmsh.finalize()
-
-    return out_msh
-
-import os
-import numpy as np
-import gmsh
-
-def generate_or_refine_mesh_try(
-    step_or_mesh_path,
-    points_of_interest=[],
-    status=None,
-    refinement_levels=0,
-    h_min=0.5,
-    h_max=2.0,
-    suffix="",
-    out_msh=None,
-    verbose=True
-):
-    points_of_interest = np.asarray(points_of_interest, float)
-
-    # ------------ Output path ------------
-    if out_msh is None:
-        base, _ = os.path.splitext(step_or_mesh_path)
-        out_msh = base.split('~')[0] + f"~{suffix}.msh"
-    out_msh = os.path.abspath(out_msh)
-
-    ext = os.path.splitext(step_or_mesh_path)[1].lower()
-    is_occ_cad = ext in [".step", ".stp", ".iges", ".igs", ".brep"]
-    is_surface_mesh = ext in [".stl", ".obj"]
-
-    gmsh.initialize()
-
-    if verbose:
-        gmsh.option.setNumber("General.Terminal", 1)
-    else:
-        gmsh.option.setNumber("General.Terminal", 0)
-        gmsh.option.setNumber("General.Verbosity", 0)
-
-    # =====================================================================
-    # PREVENTATIVE ROBUSTNESS SETTINGS
-    # =====================================================================
-    gmsh.option.setNumber("Mesh.Algorithm", 6)      
-    
-    # FIX 1: Change Algorithm3D from 10 (HXT) to 1 (Standard Delaunay).
-    # Standard Delaunay is much stricter about respecting boundary constraints 
-    # and prevents elements from "leaking" across thin concave gaps.
-    gmsh.option.setNumber("Mesh.Algorithm3D", 1)   
-    
-    gmsh.option.setNumber("Mesh.Optimize", 1)       
-    gmsh.option.setNumber("Mesh.OptimizeNetgen", 1) 
-    gmsh.option.setNumber("Geometry.Tolerance", 1e-6)
-    
-    gmsh.option.setNumber("Mesh.CharacteristicLengthFromCurvature", 1)
-    
-    # FIX 2: Increase curvature resolution. If triangles on a curved thin strip 
-    # are too flat, they will intersect the opposite wall and cause a bridge.
-    gmsh.option.setNumber("Mesh.MinimumElementsPerTwoPi", 24)
-
-    if not is_occ_cad and not is_surface_mesh:
-        raise ValueError("Input file is not a valid format; cannot create a fresh mesh.")
-
-    if verbose: print(f"[gmsh] Creating initial mesh from {ext}: {step_or_mesh_path}")
-    gmsh.open(step_or_mesh_path)
-
-    if is_occ_cad:
-        # FIX 3: Uncomment CAD healing! Overlapping/duplicate faces in thin CAD 
-        # regions are the #1 cause of 3D mesher leakage.
-        gmsh.model.occ.removeAllDuplicates()
-        gmsh.model.occ.synchronize()
-
-        vols = gmsh.model.getEntities(dim=3)
-        if len(vols) > 1:
-            if verbose:
-                print(f"[gmsh] Assembly detected ({len(vols)} solids). Keeping only the first solid.")
-            gmsh.model.occ.remove(vols[1:], recursive=True)
-            gmsh.model.occ.synchronize()
-
-        vols = gmsh.model.getEntities(dim=3)
-        if len(vols) == 0:
-            surfaces = gmsh.model.occ.getEntities(dim=2)
-            surf_ids = [s[1] for s in surfaces]
-            
-            # WARNING: If your CAD is a zero-thickness surface shell (not a solid),
-            # this step forcefully caps the open ends, which physically bridges the 
-            # concave gap. Ensure your CAD inputs are actual solids.
-            sl = gmsh.model.occ.addSurfaceLoop(surf_ids)
-            gmsh.model.occ.addVolume([sl])
-            gmsh.model.occ.synchronize()
-
-    elif is_surface_mesh:
-        gmsh.model.mesh.classifySurfaces(
-            40 * np.pi / 180,  
-            boundary=True,
-        )
-        gmsh.model.mesh.createGeometry()
-
-    # =====================================================================
-    # CASE 1 & 2
-    # =====================================================================
-    if status == 'create_initial_mesh':
-        gmsh.option.setNumber("Mesh.CharacteristicLengthMin", h_max)
-        gmsh.option.setNumber("Mesh.CharacteristicLengthMax", h_max)
-    elif status == 'load_mesh':
-        if ext != ".msh": raise ValueError("Input file must be a .msh if status=load_mesh")
-        if verbose: print(f"[gmsh] Loading existing mesh: {step_or_mesh_path}")
-        gmsh.open(step_or_mesh_path)
-
-    # =====================================================================
-    # GLOBAL PROGRESSIVE REFINEMENT
-    # =====================================================================
-    if refinement_levels > 0 and status in ['create_initial_mesh', 'load_mesh']:
-        try:
-            gmsh.model.mesh.generate(3)
-        except Exception as e:
-            print(f"[gmsh] Warning: Global initial mesh generation failed: {e}")
-            
-        for level in range(refinement_levels):
-            if verbose: print(f"  - Global refine pass {level+1}/{refinement_levels}")
-            gmsh.model.mesh.refine()
-
-    # =====================================================================
-    # LOCAL ADAPTIVE REFINEMENT NEAR POINTS OF INTEREST
-    # =====================================================================
-    else:
-        if verbose:
-            print(f"[gmsh] Adding local refinement near {len(points_of_interest)} points.")
-
-        gmsh.option.setNumber("Mesh.CharacteristicLengthMin", h_min)
-        gmsh.option.setNumber("Mesh.CharacteristicLengthMax", h_max)
-        gmsh.model.mesh.clear()
-
-        pt_tags =[]
-        xmin, ymin, zmin, xmax, ymax, zmax = gmsh.model.getBoundingBox(-1, -1)
-        
-        DistMin_base = 2.0 * h_min
-        DistMax_base = 4.0 * h_min
-
-        safety = 2 * h_min
-        exclude_dist = DistMax_base + safety
-        ignored_pois =[]
-        
-        for p in points_of_interest:
-            if len(p) == 0: continue
-            y = float(p[1])
-            if ymin + exclude_dist < y < ymax - exclude_dist:
-                tag = gmsh.model.geo.addPoint(float(p[0]), float(p[1]), float(p[2]))
-                pt_tags.append(tag)
-            else:
-                ignored_pois.append(p)
-                
-        gmsh.model.geo.synchronize()
-        if ignored_pois:
-            print(f'Ignored {len(ignored_pois)} POIS: {ignored_pois[:5]} ....')
-
-        # FIX 4: Hide the isolated POI points.
-        # By default, Gmsh alters the 3D volume to connect and mesh any floating points.
-        # Making them invisible and forcing MeshOnlyVisible=1 prevents convex-hulling voids.
-        if pt_tags:
-            gmsh.model.setVisibility([(0, tag) for tag in pt_tags], 0)
-            gmsh.option.setNumber("Mesh.MeshOnlyVisible", 1)
-
-        f_dist = gmsh.model.mesh.field.add("Distance")
-        gmsh.model.mesh.field.setNumbers(f_dist, "PointsList", pt_tags)
-
-        f_th = gmsh.model.mesh.field.add("Threshold")
-        gmsh.model.mesh.field.setNumber(f_th, "InField", f_dist)
-        gmsh.model.mesh.field.setAsBackgroundMesh(f_th)
-
-        # -----------------------------------------------------------------
-        # ROBUST RETRY LOOP
-        # -----------------------------------------------------------------
-        max_retries = 20
-        success = False
-        
-        for attempt in range(max_retries):
-            try:
-                current_h_min = h_min * (1.2 ** attempt) 
-                current_h_max = h_max * (1.2 ** attempt)
-                current_DistMin = DistMin_base * (1.5 ** attempt) 
-                current_DistMax = DistMax_base * (1.5 ** attempt)
-
-                gmsh.model.mesh.field.setNumber(f_th, "SizeMin", current_h_min)
-                gmsh.model.mesh.field.setNumber(f_th, "SizeMax", current_h_max)
-                gmsh.model.mesh.field.setNumber(f_th, "DistMin", current_DistMin)
-                gmsh.model.mesh.field.setNumber(f_th, "DistMax", current_DistMax)
-
-                if attempt > 0 and verbose:
-                    print(f"[gmsh] Retrying mesh generation (Attempt {attempt+1}). Relaxing h_min to {current_h_min:.4f}")
-
-                gmsh.model.mesh.generate(3)
-                success = True
-                break  
-                
-            except Exception as e:
-                print(f"[gmsh] Mesh generation failed on attempt {attempt+1} due to: {e}")
-                gmsh.model.mesh.clear() 
-        
-        if not success:
-            print("[gmsh] ALL RETRIES FAILED. Generating a uniform safety mesh without local refinement to prevent pipeline crash.")
-            gmsh.model.mesh.field.setAsBackgroundMesh(0) 
-            gmsh.option.setNumber("Mesh.CharacteristicLengthMin", h_max)
-            gmsh.model.mesh.generate(3)
-
-    # =====================================================================
-    # WRITE OUTPUT
-    # =====================================================================
-    vols = gmsh.model.getEntities(dim=3)
-    vol_ids = [v[1] for v in vols]
-    gmsh.model.addPhysicalGroup(3, vol_ids, tag=1)
-    gmsh.model.setPhysicalName(3, 1, "volume")
-
-    surfaces = gmsh.model.getEntities(dim=2)
-    surf_ids = [s[1] for s in surfaces]
-    gmsh.model.addPhysicalGroup(2, surf_ids, tag=2)
-    gmsh.model.setPhysicalName(2, 2, "boundary")
-    
-    os.makedirs(os.path.dirname(out_msh), exist_ok=True)
-    gmsh.write(out_msh)
-    
-    if verbose:
-        print(f"[gmsh] Wrote final mesh to {out_msh}")
-    
-    gmsh.finalize()
-
-    return out_msh
 
 def generate_or_refine_mesh(
     step_or_mesh_path,
@@ -1780,4 +1368,458 @@ def render_tet_mesh_views(
     plotter.close()
     print("✓ All done.")
 
+def is_contour_in_patch(candidate, patch_num, gridx, gridy, img_shape):
+    row, col = (patch_num-1)//gridx, (patch_num-1)%gridx
+    patch_x_min = col * (img_shape[1] // gridx)
+    patch_x_max = (col + 1) * (img_shape[1] // gridx)
+    patch_y_min = row * (img_shape[0] // gridy)
+    patch_y_max = (row + 1) * (img_shape[0] // gridy)
+    for pt in candidate['p_on']:
+        if (patch_x_min <= pt[0] < patch_x_max and patch_y_min <= pt[1] < patch_y_max):
+            return True
+    return False
+
+def return_img_patch(patch_num, grid_res):
+    patch_num_to_row_col = {}
+    for patch_num in range(1, grid_res[0] * grid_res[1] + 1):
+        row, col = (patch_num-1)//grid_res[0], (patch_num-1)%grid_res[0]
+        patch_num_to_row_col[patch_num] = (row, col)
+    
+    if patch_num not in patch_num_to_row_col:
+        print(f"Invalid patch number: {patch_num}")
+        return None
+    row, col = patch_num_to_row_col[patch_num]
+    return img_numpy[
+        row * (img_numpy.shape[0] // gridy) : (row + 1) * (img_numpy.shape[0] // gridy),
+        col * (img_numpy.shape[1] // gridx) : (col + 1) * (img_numpy.shape[1] // gridx)
+    ]
+
+def parse_geom_feature_cells(output, prompt_type, infer_views, grid_res, cons_cell_lookup=0, feature_categories=['I.C.E', 'B.H', 'T.H']):
+    pred_cells = {category: [] for category in feature_categories}
+    if prompt_type in['geomax', 'geomid']:
+        for feature_label in [f"***{cat}: " for cat in feature_categories]:
+            cell_strs =[out.split('***')[0] for out in output.split(feature_label)[1:]]
+            for cell_str in cell_strs:
+                cell_list =[int(num.strip()) for num in cell_str.split(',') if num.strip().isdigit()]
+                pred_cells[feature_label[3:-2]].append(cell_list)
+    else:
+        cell_strs =[out.split('***')[0] for out in output.split('***Cells')[1:]]
+        for cell_str in cell_strs:
+            cell_list =[int(num.strip()) for num in cell_str.split(',') if num.strip().isdigit()]
+            for category in feature_categories:
+                pred_cells[category].append(cell_list)
+
+    print("Identified cell numbers:", {cat: [len(lst) for lst in lists] for cat, lists in pred_cells.items()})
+    
+    # cons_cell_nums = {category: [set() for _ in range(len(infer_views))] for category in feature_categories}
+    # for feature_label in feature_categories:
+    #     for list_idx, cell_list in enumerate(pred_cells[feature_label]):
+    #         if list_idx >= len(infer_views):
+    #             print(f"Warning: LLM returned extra predictions for {feature_label}. Ignoring extras.")
+    #             break
+    #         for cell_num in cell_list:
+    #             for look_x in range(-cons_cell_lookup, cons_cell_lookup +1):
+    #                 for look_y in range(-cons_cell_lookup, cons_cell_lookup +1):
+    #                     neighbor_cell_num = cell_num + look_x + look_y * grid_res[0]
+    #                     if 1 <= neighbor_cell_num <= grid_res[0] * grid_res[1]:
+    #                         cons_cell_nums[feature_label][list_idx].add(neighbor_cell_num)
+
+    #{'I.C.E':[[],[],... ], 'B.H': [[],[],..], 'T.H': [[],[],..]} -> [{'I.C.E': [...], 'B.H': [...], 'T.H': [...]}, {'I.C.E': [...], 'B.H': [...], 'T.H': [...]}, ...]}
+    pred_cells_list = []
+    num_views = len(infer_views)
+    for view_idx in range(num_views):
+        view_cells = {category: pred_cells[category][view_idx] if view_idx < len(pred_cells[category]) else [] for category in feature_categories}
+        pred_cells_list.append(view_cells)
+
+    return pred_cells_list
+
+def extract_all_contours_geometry(img, min_contour_len=30, sampling_step=15, pixel_offset=5):
+    """
+    Extracts (p_on, p_in, p_out) triplets for ALL valid contours in the entire image.
+    The number of samples is dynamically scaled based on the contour's length.
+    
+    Args:
+        img: The full input image (BGR or Grayscale).
+        min_contour_len: Minimum perimeter length to be considered a valid feature.
+        sampling_step: A sample is taken roughly every 'sampling_step' pixels along the contour.
+        pixel_offset: Distance in pixels for p_in and p_out from p_on.
+        
+    Returns:
+        List of dictionaries, where each dictionary contains geometry data for one contour.
+    """
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+    edges = cv2.Canny(gray, 50, 150)
+    
+    # Use RETR_LIST to get all contours (both outer boundaries and inner holes)
+    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+    
+    all_geometries = []
+    
+    for c in contours:
+        if len(c) < min_contour_len:
+            continue
+            
+        # 1. Dynamic Sampling: Scale number of samples with contour length
+        num_samples = max(5, len(c) // sampling_step)
+        
+        # 2. Find Centroid: Used to consistently point 'p_in' towards the interior
+        M = cv2.moments(c)
+        if M['m00'] != 0:
+            cx = M['m10'] / M['m00']
+            cy = M['m01'] / M['m00']
+            centroid = np.array([cx, cy])
+        else:
+            # Fallback for degenerate contours
+            centroid = np.mean(c[:, 0, :], axis=0)
+            
+        # 3. Determine if straight (A line has ~0 area compared to its length)
+        area = cv2.contourArea(c)
+        length = cv2.arcLength(c, closed=True)
+        is_straight = area < (length * 1.5) # Threshold for "straightness/flatness"
+        
+        points_on, points_in, points_out = [], [], []
+        
+        # Sample points evenly across the contour
+        indices = np.linspace(0, len(c) - 1, num_samples, dtype=int)
+        
+        for idx in indices:
+            p_on = c[idx][0]
+            
+            # Calculate local tangent and normal (handle wrap-around for closed contours)
+            idx_prev = (idx - 3) % len(c)
+            idx_next = (idx + 3) % len(c)
+            pt1, pt2 = c[idx_prev][0], c[idx_next][0]
+            
+            dx, dy = pt2[0] - pt1[0], pt2[1] - pt1[1]
+            tangent_len = math.hypot(dx, dy)
+            if tangent_len == 0: continue
+            
+            nx, ny = -dy / tangent_len, dx / tangent_len
+            normal = np.array([nx, ny])
+            
+            # Align local normal to point towards the centroid (defining the "inside")
+            vec_to_centroid = centroid - p_on
+            if np.dot(normal, vec_to_centroid) > 0:
+                dir_in = normal
+            else:
+                dir_in = -normal
+                
+            p_in = p_on + dir_in * pixel_offset
+            p_out = p_on - dir_in * pixel_offset
+            
+            points_on.append(p_on)
+            points_in.append(p_in)
+            points_out.append(p_out)
+
+        if not points_on:
+            continue
+
+        all_geometries.append({
+            "p_on": np.array(points_on),   
+            "p_in": np.array(points_in),   
+            "p_out": np.array(points_out), 
+            "is_straight": is_straight,
+            "contour_ref": c  # Keep a reference to the original contour for plotting
+        })
+
+    return all_geometries
+
+def detect_extrusion_boundary_or_protruding_boundary_vectorized(
+    geom, mesh, cam_pos, F_pos, up_cam_vec=(0,1,0), img_H=1000, img_W=1000, orthographic=True,
+    fov_in_degrees=75, parallel_scale=None,
+    tol=1e-3, inf_threshold=1e5, consensus_ratio=0.4
+):
+    all_pixels = np.vstack([geom['p_in'], geom['p_on'], geom['p_out']])
+    all_u, all_v = all_pixels[:, 0], all_pixels[:, 1]
+    num_samples = len(geom['p_on'])
+
+    all_hits_3d = pixel_to_mesh(
+        cam_pos=cam_pos, F_pos=F_pos, u=all_u, v=all_v,
+        up_cam_vec=up_cam_vec, img_H=img_H, img_W=img_W,
+        fov_in_degrees=fov_in_degrees, parallel_scale=parallel_scale,
+        mesh=mesh, orthographic=orthographic, return_no_location=True
+    )
+    
+    # Safely compute depths, assigning infinity if ray missed
+    all_depths = np.array([
+        np.linalg.norm(hit - cam_pos) if hit is not None else np.inf 
+        for hit in all_hits_3d
+    ])
+
+    d_ins = all_depths[:num_samples]
+    d_ons = all_depths[num_samples : 2 * num_samples]
+    d_outs = all_depths[2 * num_samples:]
+
+    success_mask = np.zeros(num_samples, dtype=bool)
+    valid_mask = (d_ins < inf_threshold) & (d_ons < inf_threshold) & (d_outs < inf_threshold)
+    
+    if np.any(valid_mask):
+        v_in, v_on, v_out = d_ins[valid_mask], d_ons[valid_mask], d_outs[valid_mask]
+
+        #cond_step_down = (np.abs(v_in - v_on) <= tol) & (v_out > v_in + tol)   
+        cond_step_in   = (np.abs(v_out - v_on) <= tol) & (v_in > v_out + tol)  
+        cond_step_out =  (np.abs(v_out - v_on) <= tol) & (v_in < v_out - tol)
+        cond_valley    = (v_on > v_in + tol) & (v_on > v_out + tol)            
+        #cond_ridge     = (v_on < v_in - tol) & (v_on < v_out - tol)            
+
+        success_mask[valid_mask] = cond_step_out | cond_step_in | cond_valley #| cond_ridge
+    
+    ratio = np.sum(success_mask) / num_samples
+    return ratio >= consensus_ratio # else np.array([]) geom['p_on'][success_mask] if 
+
+
+def detect_through_hole(
+    geom, mesh, cam_pos, F_pos, up_cam_vec=(0,1,0), img_H=1000, img_W=1000, orthographic=True,
+    fov_in_degrees=75, parallel_scale=None,
+    inf_threshold=1e5, consensus_ratio=0.4
+):
+    if geom['is_straight']:
+        return np.array([]) 
+
+    all_pixels = np.vstack([geom['p_in'], geom['p_out']])
+    all_u, all_v = all_pixels[:, 0], all_pixels[:, 1]
+    num_samples = len(geom['p_in'])
+
+    all_hits_3d = pixel_to_mesh(
+        cam_pos=cam_pos, F_pos=F_pos, u=all_u, v=all_v,
+        up_cam_vec=up_cam_vec, img_H=img_H, img_W=img_W,
+        fov_in_degrees=fov_in_degrees, parallel_scale=parallel_scale,
+        mesh=mesh, orthographic=orthographic, return_no_location=True
+    )
+    
+    all_depths = np.array([
+        np.linalg.norm(hit - cam_pos) if hit is not None else np.inf 
+        for hit in all_hits_3d
+    ])
+
+    d_ins = all_depths[:num_samples]
+    d_outs = all_depths[num_samples:]
+
+    # Success: inside hits infinity, outside hits mesh
+    success_mask = (d_ins > inf_threshold) & (d_outs < inf_threshold)
+    
+    ratio = np.sum(success_mask) / num_samples
+    return  ratio >= consensus_ratio # else np.array([]) geom['p_on'][success_mask] if
+
+def detect_parts_of_contour(contours, cell_list, gridx, gridy, img_shape):
+    contour_parts = []
+    pixel_coords = []
+    for candidate in contours:
+        for cell_num in cell_list:
+            for pt in candidate['p_on']:
+                if is_contour_in_patch({'p_on': [pt]}, cell_num, gridx, gridy, img_shape):
+                    pixel_coords.append(pt)
+    return pixel_coords
+    
+
+
+# --- MOCK DATA FOR DEMONSTRATION ---
+if __name__ == '__main__':
+    # You would replace this with your actual mesh and camera setup
+    parent_dir = '/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/test_meshes_7.04.2026'
+    cad_object = '00210097'
+    load_case = 'torsion'
+    num_views = 2
+    llm_name = "google/gemini-3-flash-preview" #"openai/gpt-5-mini"
+    
+    mesh_file_path = f"{parent_dir}/{cad_object}/renders_pyvista/{cad_object}.obj"
+    mesh = trimesh.load(mesh_file_path)
+    
+    view_dir = f'{parent_dir}/{cad_object}/renders_pyvista_mesh_initial'
+    all_loaded_view_paths =[f'{parent_dir}/{cad_object}/renders_pyvista_mesh_{load_case}/{view_name}' for view_name in os.listdir(view_dir) if not view_name.startswith('view_e-90') and not view_name.startswith('view_e90')]
+    perspective_views = np.random.choice(all_loaded_view_paths, size=2, replace=False).tolist()
+
+    all_orthoview_paths = [f'{view_dir}/{view_name}' for view_name in sorted(os.listdir(view_dir))]
+    infer_views_paths =[]
+    with open(f'{parent_dir}/{cad_object}/pred_ortho_views2.txt', 'r') as fread:
+        # Read lines, strip whitespace
+        raw_lines =[line.strip() for line in fread.readlines() if line.strip()][:num_views]
+        
+        for line in raw_lines:
+            # Extract JUST the image name (e.g., 'view_e0_a0.png') from the old absolute path
+            view_name = os.path.basename(line)
+            
+            # Reconstruct the correct path using the CURRENT parent_dir
+            current_correct_path = f'{parent_dir}/{cad_object}/renders_pyvista_mesh_initial/{view_name}'
+            
+            # Make sure the file actually exists before we try to process it
+            if not os.path.exists(current_correct_path):
+                raise FileNotFoundError(f"Image missing or network drive timeout: {current_correct_path}")
+            
+            infer_views_paths.append(current_correct_path)
+
+    #render_mesh_views(mesh_file_path, n_azimuth=[0], n_elevation=[-90, 90], orthographic=True, output_dir=view_dir, add_axes=False)
+    #render_mesh_views_with_load(mesh_file_path, n_azimuth=12, n_elevation=9, orthographic=True, output_dir_prefix=f'{parent_dir}/{cad_object}/renders_pyvista_mesh', add_axes=True, loading_type=load_case)
+    
+    infer_views_paths.extend([f'{view_dir}/{view_name}' for view_name in os.listdir(view_dir) if view_name.startswith('view_e-90_a0') or view_name.startswith('view_e90_a0')])
+    #remaining_views = list(set(all_loaded_view_paths) - set(perspective_views))
+    #infer_views_paths = np.random.choice(remaining_views, size=2, replace=False).tolist()
+
+    #infer_views =[os.path.basename(view_path) for view_path in infer_views_paths]
+    infer_views_paths[0] = f'{parent_dir}/{cad_object}/renders_pyvista_mesh_initial/view_e0_a180.png'
+    experiment_name = f'try_CV_detection_{load_case}'
+    
+    output_grid_dir = f'{parent_dir}/{cad_object}/{experiment_name}/renders_pyvista_mesh_initial'
+    os.makedirs(output_grid_dir, exist_ok=True)
+    
+    gridded_views =[]
+    gridx, gridy = 11, 11
+    for img_path in tqdm(infer_views_paths, desc="Overlaying Grids", file=sys.stdout):
+        gridded_path = overlay_grid(img_path, gridx=gridx, gridy=gridy, font_scale=1.0, 
+                                    font_color=(0,0,0), grid_color=(0,0,0), font_thickness=1, 
+                                    line_thickness=1, font=cv2.FONT_HERSHEY_SCRIPT_SIMPLEX, 
+                                    arrow_cell=None, output_dir=output_grid_dir)
+        gridded_views.append(gridded_path)
+
+    print(f'Top Views Gridded: {gridded_views}')
+
+    # --- Prompt Construction ---
+    prompt = get_prompt_1(load_case, prompt_type='geomax', num_perspective_views=len(perspective_views), num_gridded_views=len(gridded_views)-2)  # You would define this function to return your actual prompt text
+
+    messages =[]
+    inference_imgs =[]
+    img_paths = perspective_views + gridded_views
+    for img_path in img_paths:
+        with open(img_path, "rb") as img_file:
+            encoded_img = base64.b64encode(img_file.read()).decode('utf-8')
+            inference_imgs.append(encoded_img)
+
+    content =[{"type": "text", "text": prompt}]
+    content.extend([{"type": "image_url", "image_url": f"data:image/png;base64,{img}"} for img in inference_imgs])
+    messages.append({"role": "user", "content": content})
+    
+    # --- Protected API Call ---
+    print(f"Waiting for OpenRouter API Response ({llm_name})...")
+    try:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"model": llm_name, "temperature": 0.0, "messages": messages},
+            timeout=60  # Prevent infinite hanging
+        )
+        response.raise_for_status() # Catches 429, 502, etc.
+        response_data = response.json()
+        
+        if 'choices' not in response_data:
+            print(f"API Error Response format: {response_data}")
+            sys.exit(1)
+            
+        output = response_data['choices'][0]['message']['content']
+        print("Response Received:", output)
+        
+    except Exception as e:
+        print(f"API Request Failed: {e}")
+        sys.exit(1) # Exit cleanly to inform parent script
+
+    pred_cells_lists = parse_geom_feature_cells(output, prompt_type='geomax', infer_views=infer_views_paths, grid_res=(gridx, gridy), cons_cell_lookup=1, feature_categories=['I.C.E', 'E.C/P.C', 'T.H', 'F'])
+    
+    output_2d_dir = f'{parent_dir}/{cad_object}/renders_pyvista_with_2Dpoints_{experiment_name}'
+    os.makedirs(output_2d_dir, exist_ok=True)
+    
+    pixel_coords_ICE, pixel_coords_EC_PC, pixel_coords_TH, pixel_coords_F = [], [], [], []
+    output_img_paths = set()  # Use a set to avoid duplicates
+    for i, view_path in enumerate(gridded_views):
+        view_path = f'{parent_dir}/{cad_object}/renders_pyvista_mesh_initial/{os.path.basename(view_path)}'
+        
+        out_path = f'{output_2d_dir}/{os.path.basename(view_path)}'
+
+        cam_pos, F_pos, view_radius = return_cam_position(view_path, mesh_path=mesh_file_path)
+        up_cam_vec = (0,1,0) if 'view_e-90' not in view_path and 'view_e90' not in view_path else (0,0,1)
+        img = cv2.imread(view_path)
+        if img is None:
+            print(f"Failed to load image: {view_path}")
+            continue
+        
+        img_numpy = np.array(img)
+        geom = extract_all_contours_geometry(img_numpy)
+        ec_pc_candidates, th_candidates =[], []
+        for contour in geom:
+            if detect_extrusion_boundary_or_protruding_boundary_vectorized(geom=contour, mesh=mesh, cam_pos=cam_pos, F_pos=F_pos, parallel_scale=0.8 * view_radius, up_cam_vec=up_cam_vec):  # You would fill in the actual mesh and camera parameters here
+                ec_pc_candidates.append(contour)
+            elif detect_through_hole(geom=contour, mesh=mesh, cam_pos=cam_pos, F_pos=F_pos, parallel_scale=0.8 * view_radius, up_cam_vec=up_cam_vec):  # You would fill in the actual mesh and camera parameters here
+                th_candidates.append(contour)
+        
+        # Plot ec_pc candidates for visual debugging
+        debug_img = img.copy()
+        for candidate in ec_pc_candidates:
+            for pt in candidate['p_on']:
+                cv2.circle(debug_img, tuple(pt.astype(int)), radius=3, color=(255, 0, 0), thickness=-1)
+        debug_out_path = f'{output_2d_dir}/debug_ec_pc_{os.path.basename(view_path)}'
+        cv2.imwrite(debug_out_path, debug_img)
+        print(f"Saved EC/PC candidate debug image to {debug_out_path}") 
+
+        #Plot th candidates for visual debugging
+        debug_img_th = img.copy()
+        for candidate in th_candidates:
+            for pt in candidate['p_on']:
+                cv2.circle(debug_img_th, tuple(pt.astype(int)), radius=3, color=(0, 0, 255), thickness=-1)
+        debug_out_path_th = f'{output_2d_dir}/debug_th_{os.path.basename(view_path)}'
+        cv2.imwrite(debug_out_path_th, debug_img_th)
+        print(f"Saved TH candidate debug image to {debug_out_path_th}")
+
+        # Here you would call analyze_cell_patch_vectorized() for each cell patch in the image
+        pred_cells = pred_cells_lists[i]
+
+        pixels_coords_view =[]    
+        for category, patch_nums in pred_cells.items():
+            
+            
+            if category == 'I.C.E':
+                print(f"Analyzing Internal Concave Edges in {view_path} for patches {patch_nums}")
+    
+                for patch_num in patch_nums:
+                    ## convert image to numpy array and extract the patch corresponding to patch_num
+                    patch = return_img_patch(patch_num, grid_res=(gridx, gridy))
+                    candidates = edge_detection_contour(view_path, patch_num, gridx, gridy, angle_thresh=20)
+                    pixels_coords_view.extend(candidates)
+                
+                output_img_paths.add(mark_spots_in_image(view_path, spot_radius=4, spot_color=(0, 255, 0), 
+                                                spot_positions=pixels_coords_view, output_path=out_path))
+                pixel_coords_ICE.append(pixels_coords_view)
+    
+            elif category == 'E.C/P.C':
+                print(f"Analyzing Extruded Contour / Portruding Contour in {view_path} for patches {patch_nums}")
+                # Similar patch extraction logic for extrusion boundaries / protruding boundaries
+                    
+                for patch_num in patch_nums:
+                    patch = return_img_patch(patch_num, grid_res=(gridx, gridy))
+                    for candidate in ec_pc_candidates:
+                        
+                        if is_contour_in_patch(candidate, patch_num, gridx, gridy, img_numpy.shape):
+                            pixels_coords_view.extend(candidate['p_on'])
+                
+                output_img_paths.add(mark_spots_in_image(view_path, spot_radius=4, spot_color=(255, 0, 0), 
+                                                spot_positions=pixels_coords_view, output_path=out_path))
+                pixel_coords_EC_PC.append(pixels_coords_view)
+
+            elif category == 'T.H':
+                print(f"Analyzing Through Holes / Fillets in {view_path} for patches {patch_nums}")
+                # Similar patch extraction logic for through holes / fillets
+            
+                for patch_num in patch_nums:
+                    patch = return_img_patch(patch_num, grid_res=(gridx, gridy))
+                    for candidate in th_candidates:
+                        if is_contour_in_patch(candidate, patch_num, gridx, gridy, img_numpy.shape):
+                            pixels_coords_view.extend(candidate['p_on'])
+                
+                output_img_paths.add(mark_spots_in_image(view_path, spot_radius=4, spot_color=(0, 0, 255), 
+                                                spot_positions=pixels_coords_view, output_path=out_path))
+                pixel_coords_TH.append(pixels_coords_view)
+            
+            elif category == 'F':
+                print(f"Analyzing Fillets in {view_path} for patches {patch_nums}")
+                # Similar patch extraction logic for fillets
+            
+                pixels_coords_view.extend(detect_parts_of_contour(geom, patch_nums, gridx, gridy, img_numpy.shape))
+                
+                output_img_paths.add(mark_spots_in_image(view_path, spot_radius=4, spot_color=(255, 0, 0), 
+                                                spot_positions=pixels_coords_view, output_path=out_path))
+                pixel_coords_F.append(pixels_coords_view)
+
+
+            ## Next Steps: Project all pixel_coords_view back to 3D using pixel_to_mesh, then analyze the 3D points to classify the type of feature (e.g., is it really a concave edge, an extrusion boundary, etc.) based on their spatial arrangement and relation to the mesh geometry.
+            ## Continued projections to be done only for F and T.H for now, since I.C.E and E.C/P.C are more edge-like and may not have as clear 3D point clusters.
+            ## Need to then check the filteration prompt for all the loading cases
+            ## Need to train orthoviews to select orthographic views on even more cad data (ideally as much as possible!!)
+    
 
