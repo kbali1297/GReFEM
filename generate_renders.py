@@ -5,7 +5,7 @@ import h5py
 from tqdm import tqdm
 from PIL import Image
 import shutil
-freecad_base = "/data/1bali/GReFEM_env"
+freecad_base = "/data/1bali/miniforge3/envs/multi_view_3DQA"
 # Append FreeCAD's Python library paths
 sys.path.append(os.path.join(freecad_base, "lib"))   # core FreeCAD libraries
 sys.path.append(os.path.join(freecad_base, "Mod"))   # FreeCAD Python modules (Part, Mesh, etc.)
@@ -102,8 +102,8 @@ def render_mesh_views(mesh_file, output_dir="renders_mesh", n_azimuth=12, n_elev
             plotter.add_mesh(
                 mesh,
                 color="#cccccc",
-                smooth_shading=True,
-                opacity=0.7,
+                smooth_shading=False,
+                opacity=1.0,
                 lighting=True,
                 specular=0.1,
                 ambient=0.3,
@@ -176,18 +176,12 @@ def render_mesh_views(mesh_file, output_dir="renders_mesh", n_azimuth=12, n_elev
                     )
                 plotter.show_axes()  # optional 3D axes at bottom-right
 
-            world_up = np.array([0.0, 1.0, 0.0])
+            if abs(elevation) == 90:
+                up_vector = (0, 0, -1)  # Use Z-axis as the up vector for top/bottom views
+            else:
+                up_vector = (0, 1, 0)   # Normal Y-axis up vector for all other views
 
-            # # Project world_up onto the image plane
-            # up = world_up - np.dot(world_up, view_dir) * view_dir
-            # if np.linalg.norm(up) < 1e-6:
-            #     # Degenerate case: looking straight up/down
-            #     up = np.array([0.0, 1.0, 0.0])
-            # else:
-            #     up /= np.linalg.norm(up)
-
-            # Camera setup
-            plotter.camera_position = [(cam_x, cam_y, cam_z), center, world_up]
+            plotter.camera_position = [(cam_x, cam_y, cam_z), center, up_vector]
 
             # 🔹 SCALE CONTROL (critical for ortho)
             if orthographic:
@@ -200,6 +194,22 @@ def render_mesh_views(mesh_file, output_dir="renders_mesh", n_azimuth=12, n_elev
 
     if verbose:
         print(f"✅ Finished rendering all mesh views to: {output_dir}")
+
+def create_hatch_texture(size=512, line_width=8, spacing=32):
+    """Creates a high-contrast black and white diagonal hatch pattern."""
+    # Create white background
+    img = np.full((size, size, 3), 255, dtype=np.uint8)
+    
+    # Draw thick diagonal lines
+    for diag in range(-size, size * 2, spacing):
+        for w in range(line_width):
+            # Draw y = x + diag
+            x = np.arange(size)
+            y = x + diag + w
+            mask = (y >= 0) & (y < size)
+            img[y[mask], x[mask]] = [0, 0, 0] # Pure black lines
+            
+    return pv.Texture(img)
 
 def read_pos_file(path):
     sp_re = re.compile(r"SP\(([eE0-9\.\-,]+)\)\{([eE0-9\.\-]+)\}")
@@ -288,7 +298,14 @@ def render_pos_views(pos_file, output_dir="renders_pyvista", n_azimuth=12, n_ele
             cloud["vals"] = vals
             plotter.add_mesh(cloud, scalars="vals", cmap=cmap, point_size=5.0, render_points_as_spheres=True, show_scalar_bar=False)
 
-            plotter.camera_position = [(cam_x, cam_y, cam_z), center, (0, 1, 0)]
+            # If the camera is directly above or below the object, the View vector is 
+            # parallel to the Y-axis. We must change the Up vector to avoid a singularity.
+            if abs(elevation) == 90:
+                up_vector = (0, 0, -1)  # Use Z-axis as the up vector for top/bottom views
+            else:
+                up_vector = (0, 1, 0)   # Normal Y-axis up vector for all other views
+
+            plotter.camera_position = [(cam_x, cam_y, cam_z), center, up_vector]
 
             if suffix:
                 filename = os.path.join(output_dir, f"view_e{elevation:.0f}_a{azimuth:.0f}_no_colorbar_{suffix}.png") 
@@ -300,6 +317,185 @@ def render_pos_views(pos_file, output_dir="renders_pyvista", n_azimuth=12, n_ele
         print(f"✅ Finished saving {n_azimuth} azimuth views at elevation {elevation:.1f}°")
         
     plotter.close()
+
+
+# Set global theme to handle empty meshes gracefully
+pv.global_theme.allow_empty_mesh = True
+
+def create_dashed_line(start, end, L, n_segments=8, radius=0.006):
+    """
+    Robustly creates a 3D dashed line. 
+    Reduced n_segments for shorter lines to keep dash spacing looking correct.
+    """
+    start = np.array(start)
+    end = np.array(end)
+    full_vec = end - start
+    
+    segments = []
+    for i in range(n_segments):
+        # 60% dash, 40% gap
+        s = start + (i / n_segments) * full_vec
+        e = start + ((i + 0.6) / n_segments) * full_vec
+        segments.append(pv.Line(s, e))
+    
+    if not segments:
+        return None
+        
+    combined = pv.merge(segments)
+    return combined.tube(radius=L * radius)
+
+def render_mesh_views_with_load(mesh_file, output_dir_prefix="renders_mesh", n_azimuth=12, n_elevation=3, 
+                      orthographic=False, points_3d=None, add_axes=True, verbose=True, 
+                      axes_size='normal', loading_type=None,
+                      arrow_density=0.05,
+                      arrow_size=0.08,
+                      support_density=0.04,
+                      support_size=0.02,
+                      support_thickness=0.008):
+    
+    output_dir = f"{output_dir_prefix}_{loading_type}" if loading_type else output_dir_prefix
+    os.makedirs(output_dir, exist_ok=True)
+    
+    if verbose:
+        print(f"▶️ Processing Mesh: {os.path.abspath(mesh_file)}")
+        print(f"  Mode: {loading_type if loading_type else 'Clean View'}")
+
+    mesh = pv.read(mesh_file)
+    if mesh.n_points == 0: 
+        if verbose: print(f"  ⚠️ Skipping {mesh_file}: Mesh has no points.")
+        return "[SKIP] Empty Mesh"
+
+    mesh_clean = (
+        mesh.clean(tolerance=1e-6).merge_points()
+        .compute_normals(auto_orient_normals=True, point_normals=True, split_vertices=False)
+    )
+
+    bounds = mesh.bounds
+    xmin, xmax, ymin, ymax, zmin, zmax = bounds
+    center = np.array([(xmin+xmax)/2, (ymin+ymax)/2, (zmin+zmax)/2])
+    cx_glob, cy_glob, cz_glob = center
+    L = max(xmax-xmin, ymax-ymin, zmax-zmin) if max(xmax-xmin, ymax-ymin, zmax-zmin) > 0 else 1.0
+    
+    arr_len = L * arrow_size
+    radius = np.linalg.norm([xmax-xmin, ymax-ymin, zmax-zmin])/2 * (1.2 if orthographic else 4.0)
+    edge_mark_factor = 0.003 if orthographic else 0.001
+    load_color = "#00008B" # Dark Blue
+
+    loading_items = [] 
+
+    if loading_type:
+        def get_resampled_points(y_low, y_high, spacing_val):
+            surface = mesh_clean.clip_box([xmin-L, xmax+L, y_low, y_high, zmin-L, zmax+L], invert=False)
+            if surface.n_points == 0: return np.array([])
+            surf_poly = surface.extract_surface()
+            gx, gz = np.meshgrid(np.arange(xmin, xmax+(L*spacing_val), L*spacing_val),
+                                 np.arange(zmin, zmax+(L*spacing_val), L*spacing_val))
+            grid_pts = np.c_[gx.ravel(), np.full(gx.size, (y_low + y_high)/2), gz.ravel()]
+            poly_grid = pv.PolyData(grid_pts)
+            dist = poly_grid.compute_implicit_distance(surf_poly)
+            mask = np.abs(dist["implicit_distance"]) < (L * spacing_val * 0.5)
+            return grid_pts[mask]
+
+        # --- 1. TOP SURFACE LOADS ---
+        top_pts = get_resampled_points(ymax - L*0.02, ymax + L*0.02, arrow_density)
+        
+        if len(top_pts) > 0:
+            cx_top = top_pts[:, 0].mean()
+            cz_top = top_pts[:, 2].mean()
+
+            if loading_type == 'compression':
+                cloud = pv.PolyData(top_pts + [0, arr_len, 0])
+                cloud['v'] = np.tile([0, -1, 0], (len(top_pts), 1))
+                loading_items.append({'mesh': cloud.glyph(orient='v', scale=False, factor=arr_len), 'color': load_color})
+
+            elif loading_type == 'torsion':
+                # REDUCED RED AXIS: Vertical stub through the top centroid
+                # Extends just a bit into the object and out of it
+                axis = create_dashed_line([cx_top, ymax - L*0.1, cz_top], 
+                                          [cx_top, ymax + L*0.2, cz_top], L)
+                if axis: loading_items.append({'mesh': axis, 'color': 'red'})
+                
+                pts_float = top_pts + np.array([0, L * 0.05, 0]) 
+                vx, vz = (top_pts[:, 2] - cz_top), -(top_pts[:, 0] - cx_top)
+                vecs = np.c_[vx, np.zeros_like(vx), vz]
+                v_norms = np.linalg.norm(vecs, axis=1)[:, None]
+                vecs = np.divide(vecs, v_norms, out=np.zeros_like(vecs), where=v_norms!=0)
+                
+                cloud = pv.PolyData(pts_float); cloud['v'] = vecs
+                loading_items.append({'mesh': cloud.glyph(orient='v', scale=False, factor=arr_len*0.8), 'color': load_color})
+
+            elif loading_type == 'bending':
+                # REDUCED RED AXIS: Moment Axis along Z through the top centroid
+                # Length is proportional to the local arrow field size
+                axis = create_dashed_line([cx_top, ymax, cz_top - L*0.15], 
+                                          [cx_top, ymax, cz_top + L*0.15], L)
+                if axis: loading_items.append({'mesh': axis, 'color': 'red'})
+
+                pts_adj, vecs = [], []
+                for p in top_pts:
+                    if p[0] >= cx_top:
+                        pts_adj.append(p + [0, arr_len, 0]); vecs.append([0, -1, 0])
+                    else:
+                        pts_adj.append(p); vecs.append([0, 1, 0])
+                cloud = pv.PolyData(np.array(pts_adj)); cloud['v'] = np.array(vecs)
+                loading_items.append({'mesh': cloud.glyph(orient='v', scale=False, factor=arr_len), 'color': load_color})
+
+            elif loading_type == 'shear':
+                cloud = pv.PolyData(top_pts + [0, L*0.05, 0])
+                cloud['v'] = np.tile([1, 0, 0], (len(top_pts), 1))
+                loading_items.append({'mesh': cloud.glyph(orient='v', scale=False, factor=arr_len), 'color': load_color})
+
+        # --- 2. BOTTOM FIXED SUPPORT ---
+        bottom_pts = get_resampled_points(ymin - L*0.02, ymin + L*0.02, support_density)
+        if len(bottom_pts) > 0:
+            h_val = L * support_size
+            starts = bottom_pts + np.array([0, -L*0.003, 0]) 
+            ends = starts + np.array([-h_val, -h_val, 0])
+            pts_arr = np.vstack((starts, ends))
+            N = len(bottom_pts)
+            conn = np.c_[np.full(N, 2), np.arange(N), np.arange(N) + N].ravel()
+            support_poly = pv.PolyData(pts_arr, lines=conn)
+            if support_poly.n_points > 0:
+                loading_items.append({'mesh': support_poly.tube(radius=L * support_thickness), 'color': 'black'})
+
+    # --- RENDER ENGINE ---
+    pv.start_xvfb()
+    elevations = n_elevation if isinstance(n_elevation, list) else [-90 + (180/(n_elevation+1))*e for e in range(1, n_elevation+1)]
+    azimuths = n_azimuth if isinstance(n_azimuth, list) else [(360/n_azimuth)*a for a in range(n_azimuth)]
+
+    if verbose: print(f"  ...Rendering views to {os.path.abspath(output_dir)}")
+
+    for elevation in elevations:
+        for azimuth in azimuths:
+            cam_x = cx_glob + radius * np.cos(np.radians(elevation)) * np.sin(np.radians(azimuth))
+            cam_y = cy_glob + radius * np.sin(np.radians(elevation))
+            cam_z = cz_glob + radius * np.cos(np.radians(elevation)) * np.cos(np.radians(azimuth))
+
+            plotter = pv.Plotter(off_screen=True, window_size=[1000, 1000])
+            plotter.set_background("white")
+            if orthographic: plotter.enable_parallel_projection()
+            
+            plotter.add_mesh(mesh_clean, color="#cccccc", smooth_shading=False, opacity=1.0, lighting=True)
+            
+            feat_edges = mesh_clean.extract_feature_edges(feature_angle=30)
+            if feat_edges.n_points > 0:
+                plotter.add_mesh(feat_edges.tube(radius=edge_mark_factor * radius), color="black", lighting=False)
+
+            for item in loading_items:
+                if item['mesh'].n_points > 0:
+                    plotter.add_mesh(item['mesh'], color=item['color'], lighting=False, ambient=1.0)
+
+            plotter.camera_position = [(cam_x, cam_y, cam_z), [cx_glob, cy_glob, cz_glob], [0, 1, 0]]
+            if orthographic: plotter.camera.parallel_scale = radius * 0.8
+                
+            filename = os.path.join(output_dir, f"view_e{elevation:.0f}_a{azimuth:.0f}.png")
+            plotter.show(screenshot=filename)
+            plotter.close()
+            if verbose: 
+                print(f"    ✅ Saved {os.path.abspath(filename)}")
+
+    if verbose: print(f"✅ COMPLETED task for {loading_type}")
+    return f"[DONE] {loading_type}"
 
 # if __name__ == '__main__':
 #     #/data/1bali/Other_LLM_projects/multi_view_3DQA/2D_FE_Mesh_2.jpg
@@ -327,11 +523,11 @@ def render_pos_views(pos_file, output_dir="renders_pyvista", n_azimuth=12, n_ele
 #     #                       n_elevation=9, orthographic=True, add_axes=False)
 
 def process_single_folder(args):
-    CAD_Folder, path_dir = args
+    CAD_Folder, path_dir, load_case = args[1]
 
     try:
 
-        #mesh_obj_file = f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj'
+        mesh_obj_file = f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj'
         os.makedirs(f'{path_dir}/{CAD_Folder}/renders_pyvista', exist_ok=True)
         os.makedirs(f'{path_dir}/{CAD_Folder}/renders_pyvista_mesh_initial', exist_ok=True)
 
@@ -339,19 +535,22 @@ def process_single_folder(args):
             if file.endswith('.obj'):
                 mesh_obj_file = f'{path_dir}/{CAD_Folder}/{file}'
                 shutil.copy(mesh_obj_file, f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj')
-        
-        output_dir = f'{path_dir}/{CAD_Folder}/renders_pyvista_mesh_initial'
+    
+        output_dir = f'{path_dir}/{CAD_Folder}/renders_pyvista_mesh'
+        mesh_obj_file = f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj'
 
         if not os.path.exists(mesh_obj_file):
             return f"[SKIP] {CAD_Folder} (no mesh)"
 
-        render_mesh_views(
+        render_mesh_views_with_load(
             mesh_obj_file,
-            output_dir=output_dir,
+            output_dir_prefix=output_dir,
             n_azimuth=12,
             n_elevation=9,
             orthographic=True,
-            add_axes=False
+            add_axes=False,
+            loading_type=load_case,
+            verbose=True
         )
 
         return f"[DONE] {CAD_Folder}"
@@ -361,10 +560,15 @@ def process_single_folder(args):
 
 if __name__ == '__main__':
 
-    path_dir = '/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/test_meshes_rebuttal'
+    path_dir = './test_meshes_7.04.2026'
     cad_folders = os.listdir(path_dir)
+    load_cases = ['torsion', 'bending', 'shear', 'compression']
+    tasks = [(folder, path_dir, load) for folder in cad_folders for load in load_cases]
 
-    tasks = [(folder, path_dir) for folder in cad_folders]
+    # for task in enumerate(tasks):
+    #     print(f"Processing {task[0]} ({task[1]}/{len(tasks)})") 
+    #     result = process_single_folder(task)
+    #     print(result)
 
     # 🔥 Tune this carefully
     max_workers = 50   # start safe (VTK + XVFB heavy)
