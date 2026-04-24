@@ -57,16 +57,25 @@ class OrthoViewDataset(Dataset):
 
             ## Adding extra views to choose better
             for img_name in os.listdir(f'{cad_folder}/renders_pyvista_mesh_initial'):
-                n_elevation, n_azimuth = 9, 12
-                if img_name.startswith('view_e') and img_name not in image_paths:
-                    el_angle = img_name.split('_e')[1].split('.')[0]
-                    az_angle = img_name.split('_a')[1].split('.')[0]
-                    elevations = [-90 + (180 /(n_elevation+1)) * e for e in range(1, n_elevation+1)]
-                    azimuths = [(360 / n_azimuth) * a for a in range(n_azimuth)]
-                    if el_angle in elevations and az_angle in azimuths:
-                        image_paths.append(f"{cad_folder}/"
+                n_azimuth = 12
+                elevations, azimuths = [-90, -72, -54, -36, -18, 0, 18, 36, 54, 72, 90], [(360 / n_azimuth) * a for a in range(n_azimuth)]
+                # if img_name.startswith('view_e') and img_name not in image_paths:
+                #     el_angle = img_name.split('_e')[1].split('.')[0]
+                #     az_angle = img_name.split('_a')[1].split('.')[0]
+                #     #elevations = [-90 + (180 /(n_elevation+1)) * e for e in range(1, n_elevation+1)] 
+                #     if el_angle in elevations and az_angle in azimuths:
+                #         image_paths.append(f"{cad_folder}/"
+                #                             f"renders_pyvista_mesh_initial/{img_name}")
+                #         labels.append(0)
+                for elevation in elevations:
+                    for azimuth in azimuths:
+                        img_name = f"view_e{elevation}_a{azimuth}.png"
+                        if img_name not in image_paths:
+                            image_paths.append(f"{cad_folder}/"
                                             f"renders_pyvista_mesh_initial/{img_name}")
-                        labels.append(0)
+                            labels.append(0)
+                        if elevation in [-90, 90]: # Only one view for top and bottom views since azimuth doesn't matter
+                            break
             
             self.samples.append(
                 {'cad_id': os.path.basename(cad_folder),
@@ -96,7 +105,10 @@ class OrthoViewDataset(Dataset):
 
 
         ## Randomize image order so the network is agnostic to the view ordering and learns to focus on views alone
-        perm = torch.randperm(len(s['labels']))
+        #perm = torch.randperm(len(s['labels']))
+
+        ## For now, we will keep the order fixed and add positional embeddings to the model to learn any view-specific patterns if they exist. We can always randomize later if needed.
+        perm = torch.arange(len(s['labels']))
 
         imgs, labels, perm_image_paths = [],[], []
         for perm_idx in perm:

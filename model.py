@@ -68,12 +68,14 @@ class ViewScoringNet(nn.Module):
 # Full model
 # -----------------------------
 class DinoViewSelector(nn.Module):
-    def __init__(self):
+    def __init__(self, num_views):
         super().__init__()
         self.encoder = DinoEncoder()
         self.scorer = ViewScoringNet(
             embed_dim=self.encoder.embed_dim
         )
+
+        self.positional_embeddings = nn.Parameter(torch.randn(num_views, self.encoder.embed_dim) * 0.02)
 
     def forward(self, images):
         """
@@ -85,6 +87,8 @@ class DinoViewSelector(nn.Module):
         feats = self.encoder(images)
         feats = feats.view(B, V, -1)
 
+        #Add positional embeddings to the view features here if desired (e.g., learnable or fixed positional embeddings based on view index)
+        feats = feats + self.positional_embeddings.unsqueeze(0)  # (1, V, D) -> broadcast to (B, V, D)
         scores = self.scorer(feats)
         return scores
 

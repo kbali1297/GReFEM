@@ -126,103 +126,35 @@ def pixel_to_mesh(cam_pos, F_pos, u, v, up_cam_vec, img_H, img_W,
 
     return results[0] if is_scalar else results
 
-def pixel_to_mesh_(cam_pos,
-    F_pos,
-    u, v,
-    up_cam_vec,
-    img_H, img_W,
-    fov_in_degrees=75,
-    parallel_scale=None,   # REQUIRED if orthographic=True
-    mesh=None,
-    orthographic=False,
-    return_all_hits=False,
-    return_no_location=False):
-    """
-    Convert pixel (u, v) to 3D world coordinate on mesh or view plane.
-    Supports both perspective and orthographic projections.
-    """
-    # -------------------------------
-    # Camera coordinate system
-    # -------------------------------
-    z_cam = F_pos - cam_pos
-    z_cam = z_cam / np.linalg.norm(z_cam)
-
-    x_cam = np.cross(up_cam_vec, -z_cam)
-    x_cam = x_cam / np.linalg.norm(x_cam)
-
-    y_cam = np.cross(-z_cam, x_cam)
-
-    cx = img_W / 2.0
-    cy = img_H / 2.0
-
-    plane_depth = np.linalg.norm(F_pos - cam_pos)
-    # -------------------------------
-    # PERSPECTIVE PROJECTION
-    # -------------------------------
-    if not orthographic:
-        plane_depth = np.linalg.norm(F_pos - cam_pos)
-
-        fov_y_rad = math.radians(fov_in_degrees)
-        fy = 0.5 * img_H / math.tan(0.5 * fov_y_rad)
-        fx = fy * img_W / img_H
-
-        x_plane = (u - cx) / fx * plane_depth
-        y_plane = -(v - cy) / fy * plane_depth
-
-        ray_origin = cam_pos + x_plane * x_cam + y_plane * y_cam
-        ray_dir = z_cam
-
-    # -------------------------------
-    # ORTHOGRAPHIC PROJECTION
-    # -------------------------------
-    else:
-        if parallel_scale is None:
-            raise ValueError("parallel_scale must be provided for orthographic projection")
-
+def calculate_dynamic_sampling_params(point_density, img_shape, cam_pos, F_pos, 
+                                      fov_deg=75, parallel_scale=None, orthographic=True):
+    # 1. Compute 3D world density
+    point_density_3d = point_density
+    img_H = img_shape[0]
+    
+    # 2. Compute World Units Per Pixel (sy)
+    if orthographic:
+        # sy = world_height / img_H
         world_height = 2.0 * parallel_scale
-        world_width = world_height * img_W / img_H
-
-        sx = world_width / img_W
         sy = world_height / img_H
-
-        dx = (u - cx) * sx
-        dy = -(v - cy) * sy
-
-        # Projection plane through focal point
-        P_plane = F_pos + dx * x_cam + dy * y_cam
-
-        ray_origin = P_plane + 1000000.0 * z_cam
-        ray_dir = -z_cam
-
-    # -------------------------------
-    # Ray–mesh intersection
-    # -------------------------------
-    if mesh is None:
-        return ray_origin + plane_depth * z_cam
-
-    locations, index_ray, index_tri = mesh.ray.intersects_location(
-        ray_origins=np.array([ray_origin]),
-        ray_directions=np.array([ray_dir])
-    )
-
-
-    if len(locations) == 0:
-        if return_no_location:
-            return None
-        return np.array([ray_origin + plane_depth * z_cam])
-
-    # sort hits by distance to camera
-    dists = np.linalg.norm(locations - cam_pos, axis=1)
-    order = np.argsort(dists)
-    locations = locations[order]
-
-
-    if return_all_hits:
-        if len(locations.shape)>1:
-            return locations
-        return locations[None,:]
     else:
-        return locations[0]   # closest hit
+        # sy = dist_to_target / focal_length_in_pixels
+        dist = np.linalg.norm(cam_pos - F_pos)
+        fy = 0.5 * img_H / np.tan(np.radians(fov_deg) * 0.5)
+        sy = dist / fy
+
+    # 3. Derive sampling_step (how far apart points are along the contour)
+    # We want a sample roughly every 'point_density_3d' units in world space
+    sampling_step = max(2, int(point_density_3d / sy))
+    
+    # 4. Derive pixel_offset (how far p_in/p_out are from p_on)
+    # This should be small enough to stay near the edge but large enough 
+    # to register a depth difference. 1/3 of the density is usually a good heuristic.
+    pixel_offset = max(1, int(sampling_step / 3))
+    
+    return sampling_step, pixel_offset
+
+
 
 
 def overlay_grid(image_path, gridx=10, gridy=10, extra_folder_specs="", font_scale=1.0, folder_path=None, font_color=(255,255,255), grid_color=(255,255,255), font_thickness=2, line_thickness=2, font = cv2.FONT_HERSHEY_SIMPLEX, arrow_cell=None, arrow_color=(255,0,0), arrow_thickness=2, arrow_len_cells=1, output_dir=None):
@@ -302,28 +234,6 @@ def overlay_grid(image_path, gridx=10, gridy=10, extra_folder_specs="", font_sca
     return output_path
     #print(f"Saved numbered image as {output_path}")
 
-
-def return_depth_map(x0, y0, cell_width, cell_height, camera_position, object_center, view_radius, img_height, img_width, mesh):
-    """
-    Given a grayscale image patch, return a depth image where white pixels are closer (lower depth values)
-    and black pixels are farther (higher depth values).
-    """
-    depth_map = np.full((cell_height, cell_width), np.inf)
-    # Invert the grayscale values to represent depth
-    for x in range(cell_width):
-        for y in range(cell_height):
-            u,v = x + x0, y + y0
-            loc3D = pixel_to_mesh(cam_pos=camera_position, F_pos=object_center,
-                          u=u, v=v, up_cam_vec=np.array([0,1,0]),parallel_scale=0.8*view_radius,
-                          img_H=img_height, img_W=img_width, fov_in_degrees=30, mesh=mesh, orthographic=True, 
-                          return_all_hits=False, return_no_location=True)
-            if len(loc3D) > 0:
-                depth_map[y,x] = loc3D[2] - camera_position[2]  # Z-coordinate as depth
-            else:
-                depth_map[y,x] = np.inf  # No intersection, set to infinity
-
-    return depth_map
-
 def detect_corner_by_avg(cnt, x0, y0, window=6, angle_thresh_deg=20):
     import numpy as np
 
@@ -377,92 +287,6 @@ def detect_corner_by_avg(cnt, x0, y0, window=6, angle_thresh_deg=20):
     
     return corners
 
-def edge_detection_contour_(image_path, cell_num, gridx=10, gridy=10, angle_thresh=30):
-    """
-    image_path: path to the image file
-    cell_num: 1-based cell number in the grid
-    gridx, gridy: number of grid cells in x and y directions
-    Returns (x, y) of a real corner inside the given grid cell.
-    Returns None if no real corner is present.
-    """
-    min_run = 5  # minimum number of consecutive points in same direction to consider a persistent change
-    # Load image and binary mask
-    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    _, mask = cv2.threshold(img, 240, 1, cv2.THRESH_BINARY_INV)
-
-    
-    h, w = img.shape
-
-    # Grid indexing (1-based cell_num)
-    r = (cell_num - 1) // gridx
-    c = (cell_num - 1) % gridx
-
-    # if cell_num==58:
-    #     print('wait')
-    x0 = c * (w // gridx)
-    x1 = (c + 1) * (w // gridx)
-    y0 = r * (h // gridy)
-    y1 = (r + 1) * (h // gridy)
-
-    # Cell dimensions
-    cell_width, cell_height = x1 - x0, y1 - y0
-
-    cell_patch = img[y0:y1, x0:x1]
-    
-    contours, _ = cv2.findContours(cell_patch, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
-
-    if not contours:
-        return None
-
-    # Filter out points from contour touching the cell border
-    contours = [contour[(contour[:,0,0]!=cell_width-1) & (contour[:,0,1]!=cell_height-1) & (contour[:,0,0]!=0) & (contour[:,0,1]!=0)] for contour in contours]
-    #cnt = max(contours, key=cv2.contourArea)
-    corners = []
-    for contour in contours:
-        if len(contour) < 20:
-            continue
-        # Check for real corner
-        corners.extend(detect_corner_by_avg(contour, x0, y0, window=4, angle_thresh_deg=angle_thresh))
-
-    inside_corners = []
-    ## The corners must lie inside the CAD geometry (i.e. on mask)
-    ## Object is white (1) on black (0) background
-    if corners is not None:
-        for corner in corners:
-            x, y = corner
-            flag=0
-            shift_x, shift_y = 0, 0
-            inspect_r = 6 
-            num_theta = 72
-            iter_points = [[x + inspect_r * np.cos(theta), y + inspect_r * np.sin(theta)] for theta in np.linspace(0,2*np.pi,num_theta)]
-            num_points_out = len(iter_points)
-            num_points_in = 0
-            for iter_p in iter_points:
-                iter_x, iter_y = int(round(iter_p[0])), int(round(iter_p[1]))
-                if mask[iter_y, iter_x] == 1:
-                    num_points_in += 1
-                    shift_x += iter_x - x
-                    shift_y += iter_y - y
-                    num_points_out-= 1
-            if num_points_in > round(len(iter_points) * (180+angle_thresh)/360) and num_points_out>0:
-                shift_x/=num_points_in
-                shift_y/=num_points_in
-                corner += np.array([shift_x, shift_y]) # * 0.6                
-                inside_corners.append(corner)
-            # for dx in [-5, 5]:
-            #     for dy in [-5, 5]:
-            #         if mask[y + dy, x + dx] == 1:
-            #             flag+=1
-            #         else:
-            #             # Shift the corner closer to geometry in case it does 
-            #             # turn out to be internal corner
-            #             shift_x, shift_y = -dx, -dy
-            # if flag==3:
-            #     corner += 0.6 * np.array([shift_x, shift_y])                
-            #     inside_corners.append(corner)
-    
-    return inside_corners
-
 import cv2
 import numpy as np
 
@@ -511,36 +335,6 @@ def edge_detection_contour(image_path, cell_num, gridx=10, gridy=10, angle_thres
         corners.extend(detect_corner_by_avg(contour, x0, y0, window=4, angle_thresh_deg=angle_thresh))
 
     inside_corners =[]
-    ## The corners must lie inside the CAD geometry (i.e. on mask)
-    ## Object is white (1) on black (0) background
-    # if corners is not None:
-    #     for corner in corners:
-    #         x, y = corner
-    #         shift_x, shift_y = 0, 0
-    #         inspect_r = 6 
-    #         num_theta = 72
-    #         iter_points = [[x + inspect_r * np.cos(theta), y + inspect_r * np.sin(theta)] for theta in np.linspace(0, 2*np.pi, num_theta)]
-    #         num_points_out = len(iter_points)
-    #         num_points_in = 0
-            
-    #         for iter_p in iter_points:
-    #             iter_x, iter_y = int(round(iter_p[0])), int(round(iter_p[1]))
-                
-    #             # BOUNDARY CHECK ADDED HERE
-    #             if 0 <= iter_x < w and 0 <= iter_y < h:
-    #                 if mask[iter_y, iter_x] == 1:
-    #                     num_points_in += 1
-    #                     shift_x += iter_x - x
-    #                     shift_y += iter_y - y
-    #                     num_points_out -= 1
-
-    #         if num_points_in >= round(len(iter_points) * (180 + angle_thresh) / 360): #and num_points_out > 0
-    #             shift_x /= num_points_in
-    #             shift_y /= num_points_in
-    #             corner += np.array([shift_x, shift_y]) # * 0.6                
-    #             inside_corners.append(corner)
-    
-    # return inside_corners
 
     if corners:
         inspect_r = 6 
@@ -580,389 +374,6 @@ def edge_detection_contour(image_path, cell_num, gridx=10, gridy=10, angle_thres
                 inside_corners.append(np.array([x + shift_x, y + shift_y]))
     
     return inside_corners
-
-def circle_edge_support(edge_img, circle, tol=2.0, n_samples=360, min_support=0.3):
-    """
-    edge_img: binary edge image (Canny output)
-    circle: (x, y, r)
-    tol: radial tolerance in pixels
-    min_support: fraction of points that must hit edges
-    """
-
-    h, w = edge_img.shape
-    x0, y0, r = circle
-
-    hits = 0
-    for t in np.linspace(0, 2*np.pi, n_samples, endpoint=False):
-        x = int(round(x0 + r * np.cos(t)))
-        y = int(round(y0 + r * np.sin(t)))
-
-        if x < 0 or y < 0 or x >= w or y >= h:
-            continue
-
-        # check small radial band
-        for dr in range(-int(tol), int(tol) + 1):
-            xx = int(round(x0 + (r + dr) * np.cos(t)))
-            yy = int(round(y0 + (r + dr) * np.sin(t)))
-            if 0 <= xx < w and 0 <= yy < h and edge_img[yy, xx]:
-                hits += 1
-                break
-
-    return hits / n_samples >= min_support
-
-def circle_in_img_patch(circle, image_path, cell_num, gridx=10, gridy=10):
-    # _ = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    # h, w = _.shape
-    h,w = 1000, 1000    
-    cell_h = h // gridy
-    cell_w = w // gridx
-
-    r = (cell_num - 1) // gridx
-    c = (cell_num - 1) % gridx
-
-    x0, x1 = c * cell_w, (c + 1) * cell_w
-    y0, y1 = r * cell_h, (r + 1) * cell_h
-
-    circle_pts = [(circle['xc'] + circle['r'] * np.cos(theta), circle['yc'] + circle['r'] * np.sin(theta)) for theta in np.linspace(0,2*np.pi, num=12)]
-
-    for pts in circle_pts:
-        x, y = pts
-        if x>=x0 and x<=x1 and y>=y0 and y<=y1:
-            return True
-    
-    return False
-
-def add_circle_pts_(circle, store_array):
-
-    circle_pts = [(circle['xc'] + circle['r'] * np.cos(theta), circle['yc'] + circle['r'] * np.sin(theta)) for theta in np.linspace(0,2*np.pi, num=12)]
-    circle_center = np.array([circle['xc'], circle['yc']])
-    min_dist = 100000        
-    if len(store_array['circles']) == 0:
-        store_array['circles'].append(circle)
-        store_array['pts'].extend(circle_pts)
-    else:
-        for idx, stored_circle in enumerate(store_array['circles']):
-            stored_circle_center = np.array([stored_circle['xc'], stored_circle['yc']])    
-            dist = np.linalg.norm(stored_circle_center - circle_center)
-            if dist < min_dist:
-                min_idx = idx
-                min_dist = dist
-        
-        min_circle = store_array['circles'][min_idx]
-        nearest_circle_center = np.array([min_circle['xc'], min_circle['yc']])
-        
-        if np.linalg.norm(nearest_circle_center - circle_center) > 10 \
-            or np.abs(min_circle['r'] - circle['r']) > 10: 
-            store_array['circles'].append(circle)
-            store_array['pts'].extend(circle_pts)
-
-            return store_array
-    
-    return store_array
-
-def add_circle_pts(circle, store_array):
-    THETAS = np.linspace(0, 2*np.pi, 12, endpoint=False)
-    COS_T = np.cos(THETAS)
-    SIN_T = np.sin(THETAS)
-    xc, yc, r = circle['xc'], circle['yc'], circle['r']
-
-    # vectorized circle points
-    circle_pts = np.column_stack((
-        xc + r * COS_T,
-        yc + r * SIN_T
-    ))
-
-    try:
-        if not store_array['circles']:
-            store_array['circles'].append(circle)
-            store_array['pts'].extend(circle_pts)
-            return store_array
-
-        # extract centers & radii in one pass
-        centers = np.array([[c['xc'], c['yc']] for c in store_array['circles']])
-        radii   = np.array([c['r'] for c in store_array['circles']])
-
-        # vectorized distances
-        deltas = centers - np.array([xc, yc])
-        dists = np.sqrt(np.sum(deltas * deltas, axis=1))
-
-        min_idx = np.argmin(dists)
-
-        if dists[min_idx] > 10 or abs(radii[min_idx] - r) > 10:
-            store_array['circles'].append(circle)
-            store_array['pts'].extend(circle_pts)
-
-        
-    except:
-        store_array.extend(circle_pts)
-
-    return store_array
-
-
-
-import cv2
-import numpy as np
-
-def detect_all_circles_cv2(image_path, min_arc_ratio=0.20): # Ensure this isn't overridden to 0.1 in your args!
-    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    h, w = img.shape
-    
-    blurred_img = cv2.GaussianBlur(img, (7,7), 1.5)
-    # blurred_img = img
-    edges = cv2.Canny(blurred_img, 80, 160)
-    
-    if not np.any(edges):
-        edges = cv2.Canny(blurred_img, 10, 40)
-        param1_val = 40
-    else:
-        param1_val = 120
-
-    # 1. FINELY TUNED MULTI-SCALE BRACKETS
-    # By grouping radii closely, we ensure `param2` scales properly with the circumference.
-    # We demand roughly 20-25% of the circle's perimeter to exist in edge pixels.
-    max_dim = min(h, w)
-    brackets =[
-        # Tiny holes (R: 4-15) -> Circ: ~25-94 pixels. Need ~12 edge pixels.
-        {'minR': 4,   'maxR': 15,  'param2': 10,  'minDist': 2},
-        
-        # Small fillets (R: 15-30) -> Circ: ~94-188 pixels. Need ~25 edge pixels.
-        {'minR': 15,  'maxR': 30,  'param2': 25,  'minDist': 2},
-        
-        # Medium curves (R: 30-60) -> Circ: ~188-376 pixels. Need ~45 edge pixels.
-        {'minR': 30,  'maxR': 60,  'param2': 45,  'minDist': 2},
-        
-        # Large arches (R: 60-120) -> Circ: ~376-750 pixels. Need ~80 edge pixels.
-        {'minR': 60,  'maxR': 120, 'param2': 60,  'minDist': 2},
-
-        # Massive boundary curves (R: 120+) -> Need ~120+ edge pixels.
-        {'minR': 120, 'maxR': int(round(0.6 * max_dim)), 'param2': 100, 'minDist': 2}
-    ]
-
-    raw_circles =[]
-
-    # Run HoughCircles for each size bracket
-    for b in brackets:
-        if b['minR'] >= b['maxR']: continue 
-        
-        c = cv2.HoughCircles(
-            blurred_img, cv2.HOUGH_GRADIENT,
-            dp=1.0, minDist=b['minDist'],
-            param1=param1_val, param2=b['param2'],
-            minRadius=b['minR'], maxRadius=b['maxR']
-        )
-        if c is not None:
-            raw_circles.extend(c[0])
-
-    valid_circles =[]
-
-    # Sort circles by radius (smallest first). 
-    raw_circles = sorted(raw_circles, key=lambda x: x[2])
-    
-    for x, y, r in raw_circles:
-        dynamic_tol = max(1.5, min(3.0, r * 0.05)) 
-        
-        if circle_edge_support(edges, (x, y, r),
-                               tol=dynamic_tol,
-                               n_samples=360,
-                               min_support=min_arc_ratio):
-            
-            is_duplicate = False
-            for vx, vy, vr in valid_circles:
-                dist = np.hypot(x - vx, y - vy)
-                
-                # 2. FIXED DE-DUPLICATION LOGIC (NMS)
-                # If the centers are very close (within 10 pixels or 20% of radius)...
-                if dist < max(10.0, vr * 0.20):
-                    # ... AND their radii are very similar (within 15% difference), it's a duplicate.
-                    # BUT if radii are significantly different (concentric), this fails and both survive!
-                    if abs(r - vr) < max(5.0, vr * 0.15):
-                        is_duplicate = True
-                        break
-            
-            if not is_duplicate:
-                valid_circles.append((x, y, r))
-
-    # Format output
-    circles =[]
-    #valid_circles = raw_circles
-    for vc in valid_circles:
-        circles.append({'xc': vc[0], 'yc': vc[1], 'r': vc[2]})
-
-    return circles
-
-def detect_all_circles_cv2_1(image_path, min_arc_ratio=0.25):
-    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    h, w = img.shape
-    
-    #blurred_img = cv2.GaussianBlur(img, (7,7), 1.5)
-    blurred_img=  img
-    edges = cv2.Canny(blurred_img, 80, 160)
-    
-    if not np.any(edges):
-        edges = cv2.Canny(blurred_img, 10, 40)
-        param1_val = 40
-    else:
-        param1_val = 120
-
-    # 1. MULTI-SCALE SEARCH BRACKETS
-    # Dictionary of: {minRadius, maxRadius, param2 (votes), minDist}
-    brackets =[
-        # Small holes: need very few votes, can be close together
-        {'minR': 4,  'maxR': 20,  'param2': 14, 'minDist': 10},
-        
-        # Medium features (fillets, standard holes): need more votes to reject noise
-        {'minR': 20, 'maxR': 80,  'param2': 25, 'minDist': 20},
-        
-        # Large curves (arches, outer boundaries): need many votes
-        {'minR': 80, 'maxR': int(round(0.6*min(h,w))), 'param2': 45, 'minDist': 40}
-    ]
-    
-    raw_circles = []
-    
-    # Run HoughCircles for each size bracket
-    for b in brackets:
-        if b['minR'] >= b['maxR']: continue 
-        
-        c = cv2.HoughCircles(
-            blurred_img, cv2.HOUGH_GRADIENT,
-            dp=1.0, minDist=b['minDist'],
-            param1=param1_val, param2=b['param2'],
-            minRadius=b['minR'], maxRadius=b['maxR']
-        )
-        if c is not None:
-            raw_circles.extend(c[0])
-
-    valid_circles =[]
-
-    # 2. VALIDATION & DE-DUPLICATION (NMS)
-    for x, y, r in raw_circles:
-        
-        # Dynamic Tolerance: 2 pixels is a huge error for a radius=4 hole (50% error), 
-        # but very strict for a radius=100 curve. Scale it!
-        dynamic_tol = max(1.5, min(3.0, r * 0.05)) 
-        
-        if circle_edge_support(edges, (x, y, r),
-                               tol=dynamic_tol,
-                               n_samples=360,
-                               min_support=min_arc_ratio):
-            
-            # Check if this circle is a duplicate/overlapping heavily with an already saved one
-            is_duplicate = False
-            for vx, vy, vr in valid_circles:
-                dist = np.hypot(x - vx, y - vy)
-                # If centers are very close AND radii are similar, consider it noise/duplicate
-                if dist < (vr * 0.4) and abs(r - vr) < (vr * 0.3):
-                    is_duplicate = True
-                    break
-            
-            if not is_duplicate:
-                valid_circles.append((x, y, r))
-
-    # Format output
-    circles =[]
-    for vc in valid_circles:
-        circles.append({'xc': vc[0], 'yc': vc[1], 'r': vc[2]})
-    
-    return circles
-
-def detect_all_circles_cv2_1(image_path, min_arc_ratio=0.2): # 1. Lowered to 0.2 to allow 25% (quarter) circles
-    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    h, w = img.shape
-    
-    # Blur once to use for both Canny and Hough
-    blurred_img = cv2.GaussianBlur(img, (7,7), 1.5)
-    
-    # Edges are ONLY used for your custom circle_edge_support validation
-    edges = cv2.Canny(blurred_img, 80, 160)
-    
-    if not np.any(edges):
-        edges = cv2.Canny(blurred_img, 10, 40)
-        
-        circles_cv2 = cv2.HoughCircles(
-            blurred_img, cv2.HOUGH_GRADIENT,
-            dp=1.0, minDist=10, # 2. minDist changed from 0.1 to 10.0 pixels
-            param1=40, param2=15,
-            minRadius=4, maxRadius=int(round(0.6*min(h,w)))
-        )
-    else:
-        circles_cv2 = cv2.HoughCircles(
-            blurred_img, cv2.HOUGH_GRADIENT, # 3. CRITICAL: Passed blurred_img, NOT edges!
-            dp=1.0, minDist=10,            # minDist changed to 10.0 pixels
-            param1=120,                      # Slightly lowered to catch fainter holes
-            param2=20,                       # 4. CRITICAL: Lowered from 65 to 20 to catch small/partial circles
-            minRadius=4,                     # Dropped to 4 to catch tiny holes
-            maxRadius=int(round(0.6*min(h,w)))
-        )
-    
-    valid_circles =[]
-
-    if circles_cv2 is not None:
-        circles_cv2 = circles_cv2[0]  # unwrap
-        for x, y, r in circles_cv2:
-            if circle_edge_support(edges, (x, y, r),
-                                tol=2.0,
-                                n_samples=360,
-                                min_support=min_arc_ratio): # Now allows >= 20% of a circle
-                valid_circles.append((x, y, r))
-
-    if not valid_circles: 
-        circles = []
-    else:
-        circles =[]
-        for valid_circle in valid_circles:
-            circles.append({'xc': valid_circle[0],
-                            'yc': valid_circle[1],
-                            'r' : valid_circle[2]})
-    
-    return circles
-
-
-def detect_all_circles_cv2_(image_path, min_arc_ratio=0.2):
-    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    h, w = img.shape
-    edges = cv2.Canny(
-          cv2.GaussianBlur(img, (7,7), 1.5),
-          80, 160)
-    
-    if np.any(edges)==False:
-        edges = cv2.Canny(
-            cv2.GaussianBlur(img, (7,7), 1.5),
-            10, 40)
-        
-        circles_cv2 = cv2.HoughCircles(
-            img, cv2.HOUGH_GRADIENT,
-            dp=1.0, minDist=0.1,
-            param1=40, param2=15,
-            minRadius=5, maxRadius=int(round(0.6*min(h,w)))
-        )
-    else:
-        circles_cv2 = cv2.HoughCircles(
-            edges, cv2.HOUGH_GRADIENT,
-            dp=1.0, minDist=0.1,
-            param1=160, param2=65,
-            minRadius=5, maxRadius=int(round(0.6*min(h,w)))
-        )
-    
-    valid_circles = []
-
-    if circles_cv2 is not None:
-        circles_cv2 = circles_cv2[0]  # unwrap
-        for x, y, r in circles_cv2:
-            if circle_edge_support(edges, (x, y, r),
-                                tol=2.0,
-                                n_samples=360,
-                                min_support=min_arc_ratio): # Allow partial circles, arc angle = min_arc_ratio * 360
-                valid_circles.append((x, y, r))
-
-    if valid_circles is None: circles = []
-    else:
-        circles = []
-        for valid_circle in valid_circles:
-            circles.append({'xc': valid_circle[0],
-                            'yc': valid_circle[1],
-                            'r' : valid_circle[2]})
-    
-    return circles
 
 def return_cam_position(view_img, mesh_path, zoom=1.2):
     
@@ -1718,25 +1129,41 @@ if __name__ == '__main__':
     
     pixel_coords_ICE, pixel_coords_EC_PC, pixel_coords_TH, pixel_coords_F = [], [], [], []
     output_img_paths = set()  # Use a set to avoid duplicates
+    
+    ## Define point density for point prediction and projection, will use the same for the geometric heuristic
+    bbox_min, bbox_max = mesh.bounds  # shape (2, 3)
+    point_density = np.linalg.norm(bbox_max - bbox_min) / 66.667  # Adjust divisor for more/less density
+    
     for i, view_path in enumerate(gridded_views):
         view_path = f'{parent_dir}/{cad_object}/renders_pyvista_mesh_initial/{os.path.basename(view_path)}'
         
         out_path = f'{output_2d_dir}/{os.path.basename(view_path)}'
 
         cam_pos, F_pos, view_radius = return_cam_position(view_path, mesh_path=mesh_file_path)
+        parallel_scale = view_radius * 0.8
         up_cam_vec = (0,1,0) if 'view_e-90' not in view_path and 'view_e90' not in view_path else (0,0,1)
         img = cv2.imread(view_path)
         if img is None:
             print(f"Failed to load image: {view_path}")
             continue
         
+        s_step, p_offset = calculate_dynamic_sampling_params(
+        point_density=point_density, 
+        img_shape=(1000, 1000), 
+        cam_pos=cam_pos, 
+        F_pos=F_pos, 
+        fov_deg=75, 
+        parallel_scale=parallel_scale, 
+        orthographic=True)
+
         img_numpy = np.array(img)
-        geom = extract_all_contours_geometry(img_numpy)
+        geom = extract_all_contours_geometry(img_numpy, sampling_step=s_step, pixel_offset=p_offset)
         ec_pc_candidates, th_candidates =[], []
         for contour in geom:
-            if detect_extrusion_boundary_or_protruding_boundary_vectorized(geom=contour, mesh=mesh, cam_pos=cam_pos, F_pos=F_pos, parallel_scale=0.8 * view_radius, up_cam_vec=up_cam_vec):  # You would fill in the actual mesh and camera parameters here
+            # insert sampling distance into each
+            if detect_extrusion_boundary_or_protruding_boundary_vectorized(geom=contour, mesh=mesh, cam_pos=cam_pos, F_pos=F_pos, parallel_scale=parallel_scale, up_cam_vec=up_cam_vec):  # You would fill in the actual mesh and camera parameters here
                 ec_pc_candidates.append(contour)
-            elif detect_through_hole(geom=contour, mesh=mesh, cam_pos=cam_pos, F_pos=F_pos, parallel_scale=0.8 * view_radius, up_cam_vec=up_cam_vec):  # You would fill in the actual mesh and camera parameters here
+            elif detect_through_hole(geom=contour, mesh=mesh, cam_pos=cam_pos, F_pos=F_pos, parallel_scale=parallel_scale, up_cam_vec=up_cam_vec):  # You would fill in the actual mesh and camera parameters here
                 th_candidates.append(contour)
         
         # Plot ec_pc candidates for visual debugging
@@ -1817,9 +1244,82 @@ if __name__ == '__main__':
                 pixel_coords_F.append(pixels_coords_view)
 
 
-            ## Next Steps: Project all pixel_coords_view back to 3D using pixel_to_mesh, then analyze the 3D points to classify the type of feature (e.g., is it really a concave edge, an extrusion boundary, etc.) based on their spatial arrangement and relation to the mesh geometry.
-            ## Continued projections to be done only for F and T.H for now, since I.C.E and E.C/P.C are more edge-like and may not have as clear 3D point clusters.
-            ## Need to then check the filteration prompt for all the loading cases
-            ## Need to train orthoviews to select orthographic views on even more cad data (ideally as much as possible!!)
-    
+        ## Next Steps: Project all pixel_coords_view back to 3D using pixel_to_mesh.
+        ## Continued projections to be done only for I.C.E, F and T.H for now, since E.C/P.C are visible already in the view.
+        ## Need to then check the filteration prompt for all the loading cases
+        ## Need to train orthoviews to select orthographic views on even more cad data (ideally as much as possible!! Train on as much data as possible and add positional embeddings to thhe views after arranging them in that order)
+
+        # --- 3D Raycasting (VECTORIZED) ---
+        mark_points_ICE_F_TH =[]
+        for view, edge_list in tqdm(zip(gridded_views, pixel_coords_ICE + pixel_coords_F + pixel_coords_TH), total=len(gridded_views), desc="Mapping ICE to 3D Mesh", file=sys.stdout):
+
+            view_path = f'{parent_dir}/{cad_object}/renders_pyvista_mesh_initial/{os.path.basename(view_path)}'
+
+            out_path = f'{output_2d_dir}/{os.path.basename(view_path)}'
+
+            cam_pos, F_pos, view_radius = return_cam_position(view_path, mesh_path=mesh_file_path)
+            parallel_scale = view_radius * 0.8
+            
+            if len(edge_list) == 0: continue
+            camera_pos, object_center, view_radius = return_cam_position(view, mesh_path)
+
+            u_arr =[px[0] for px in edge_list]
+            v_arr =[px[1] for px in edge_list]
+
+            all_hits = pixel_to_mesh(cam_pos=camera_pos, F_pos=object_center, u=u_arr, v=v_arr, 
+                                    up_cam_vec=np.array([0,1,0]), parallel_scale=0.8*view_radius,
+                                    img_H=1000, img_W=1000, fov_in_degrees=30, 
+                                    mesh=mesh, orthographic=True, return_all_hits=True)
+
+            for p_world in all_hits:
+                if p_world is not None and p_world.shape[0] >= 2:
+                    for j in range(0, p_world.shape[0] - 1, 2):
+                        if j>0: break
+                        p_enter = p_world[j]
+                        p_exit = p_world[j+1]
+                        edge_points_on_mesh = p_enter + (p_exit - p_enter)/point_density
+                        mark_points_ICE_F_TH.extend(edge_points_on_mesh) 
+        
+        mark_points_EC_PC =[]
+        for view, edge_list in tqdm(zip(gridded_views, pixel_coords_EC_PC), total=len(gridded_views), desc="Mapping EC/PC to 3D Mesh", file=sys.stdout):
+
+            view_path = f'{parent_dir}/{cad_object}/renders_pyvista_mesh_initial/{os.path.basename(view_path)}'
+
+            out_path = f'{output_2d_dir}/{os.path.basename(view_path)}'
+
+            cam_pos, F_pos, view_radius = return_cam_position(view_path, mesh_path=mesh_file_path)
+            parallel_scale = view_radius * 0.8
+            
+            if len(edge_list) == 0: continue
+            camera_pos, object_center, view_radius = return_cam_position(view, mesh_path)
+
+            u_arr =[px[0] for px in edge_list]
+            v_arr =[px[1] for px in edge_list]
+
+            all_hits = pixel_to_mesh(cam_pos=camera_pos, F_pos=object_center, u=u_arr, v=v_arr, 
+                                    up_cam_vec=np.array([0,1,0]), parallel_scale=0.8*view_radius,
+                                    img_H=1000, img_W=1000, fov_in_degrees=30, 
+                                    mesh=mesh, orthographic=True, return_all_hits=True)
+
+            for p_world in all_hits:
+                if p_world is not None and p_world.shape[0] >= 2:
+                    for j in range(0, p_world.shape[0] - 1, 2):
+                        if j>0: break
+                        p_enter = p_world[j]
+                        p_exit = p_world[j+1]
+                        #edge_points_on_mesh = p_enter + (p_exit - p_enter)/point_density
+                        mark_points_EC_PC.extend([p_enter])
+
+
+        ## After raycasting time to filter out cells
+        
+
+        
+
+
+
+            
+
+
+            
 

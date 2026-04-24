@@ -18,7 +18,7 @@ import MeshPart
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
-def render_mesh_views(mesh_file, output_dir="renders_mesh", n_azimuth=12, n_elevation=3, orthographic=False, points_3d=None, add_axes=True, verbose=False, axes_size='normal'):
+def render_mesh_views(mesh_file, output_dir="renders_pyvista_mesh_initial", n_azimuth=12, n_elevation=[-90, -72, -54, -36, -18, 0, 18, 36, 54, 72, 90], orthographic=False, points_3d=None, add_axes=True, verbose=False, axes_size='normal'):
     """
     Render multiple views of a mesh (.obj, .stl, etc.) showing mesh elements (faces & edges).
     """
