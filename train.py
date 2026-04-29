@@ -6,13 +6,18 @@ from model import DinoViewSelector, pairwise_ranking_loss
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-def train_one_epoch(model, loader, optimizer, device):
+def train_one_epoch(model, loader, val_loader, optimizer, device, val_freq=10):
     model.train()
     total_loss = 0.0
+    last_val_loss = None  # Use None to track if it has run yet
 
-    num_samples = 0
-    for batch in tqdm(loader, total=len(loader)):
-        batch['images'], batch['labels'] = batch['images'].to(device), batch['labels'].to(device)
+    pbar = tqdm(enumerate(loader), total=len(loader), desc="Training")
+
+    for i, batch in pbar:
+        # --- Training Step ---
+        batch['images'] = batch['images'].to(device)
+        batch['labels'] = batch['labels'].to(device)
+        
         scores = model(batch['images'])
         loss = pairwise_ranking_loss(scores=scores, labels=batch['labels'])
 
@@ -21,70 +26,108 @@ def train_one_epoch(model, loader, optimizer, device):
         optimizer.step()
 
         total_loss += loss.item()
-        num_samples += batch['images'].shape[0]
+        avg_train_loss = total_loss / (i + 1)
 
-    return total_loss / num_samples
+        # --- Intermediate Validation ---
+        # Trigger validation every val_freq batches
+        # i + 1 is used so that if val_freq is 10, it runs on batch 10, 20, 30...
+        if (i + 1) % val_freq == 0:
+            last_val_loss = validate(model, val_loader, device)
+            model.train() # Back to train mode
+
+        # --- Update Progress Bar ---
+        # Construct the display dictionary
+        display_stats = {
+            'loss': f"{loss.item():.6E}",
+            'avg_train': f"{avg_train_loss:.6E}"
+        }
+        
+        # Add val loss to display only after the first one is calculated
+        if last_val_loss is not None:
+            display_stats['val_loss'] = f"{last_val_loss:.6E}"
+        else:
+            display_stats['val_loss'] = "waiting..."
+
+        pbar.set_postfix(display_stats)
+
+    return avg_train_loss
 
 def validate(model, loader, device):
     model.eval()
     val_loss = 0.0
-
-    num_samples = 0
-    for batch in loader:
-        with torch.no_grad():
-            batch['images'], batch['labels'] = batch['images'].to(device), batch['labels'].to(device)
+    num_batches = 0
+    
+    with torch.no_grad():
+        for batch in loader:
+            batch['images'] = batch['images'].to(device)
+            batch['labels'] = batch['labels'].to(device)
+            
             scores = model(batch['images'])
             loss = pairwise_ranking_loss(scores=scores, labels=batch['labels'])
+            
+            val_loss += loss.item()
+            num_batches += 1
 
-        val_loss += loss.item()
-        num_samples += batch['images'].shape[0]
-
-    return val_loss/num_samples
+    return val_loss / num_batches if num_batches > 0 else 0
 
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    parent_dir = '/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM'
+    model_save_dir = f"{parent_dir}/model_saves_27.04.2026"
+    os.makedirs(model_save_dir, exist_ok=True)
 
-    parent_dir = '/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views'
-    train_set = OrthoViewDataset(f"{parent_dir}/train_.txt")
-    val_set   = OrthoViewDataset(f"{parent_dir}/val_.txt")
+    # --- Hyperparameters ---
+    MAX_EPOCHS = 50
+    PATIENCE_LIMIT = 3
+    TOP_K_TO_KEEP = 3
+    VAL_FREQ = 1  # Check validation loss every 5 batches
 
-    train_loader = DataLoader(train_set, batch_size=128, shuffle=True, num_workers=4)#DataLoader(train_set, batch_size=4, shuffle=True, num_workers=4)
-    val_loader   = DataLoader(val_set, batch_size=32, shuffle=False)
+    train_set = OrthoViewDataset(f"{parent_dir}/train.log")
+    val_set   = OrthoViewDataset(f"{parent_dir}/val.log")
+    
+    train_loader = DataLoader(train_set, batch_size=128, shuffle=True, num_workers=4)
+    val_loader   = DataLoader(val_set, batch_size=16, shuffle=False)
 
-    model = DinoViewSelector().to(device)
+    model = DinoViewSelector(num_views=110).to(device)
+    optimizer = torch.optim.AdamW(model.scorer.parameters(), lr=1e-4, weight_decay=1e-4)
 
-    optimizer = torch.optim.AdamW(
-        model.scorer.parameters(),
-        lr=1e-4,
-        weight_decay=1e-4,
-    )
+    # --- Tracking ---
+    best_val_loss = float('inf')
+    epochs_without_improvement = 0
+    checkpoint_history = [] 
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode="min",
-        factor=0.7,       # aggressive decay
-        patience=5,       # wait few epochs of no improvement
-        min_lr=1e-6,
-        verbose=True,
-    )
-
-    for epoch in range(100):
-        train_loss = train_one_epoch(model, train_loader, optimizer, device)
+    for epoch in range(MAX_EPOCHS):
+        # Pass val_loader and val_freq to the training function
+        train_loss = train_one_epoch(model, train_loader, val_loader, optimizer, device, val_freq=VAL_FREQ)
+        
+        # Final validation at end of epoch for checkpointing
         val_loss = validate(model, val_loader, device)
 
-        scheduler.step(val_loss)
-        lr = optimizer.param_groups[0]["lr"]
-        print(
-            f"[Epoch {epoch:02d}] "
-            f"loss={train_loss:.4f} "
-            f"val_loss={val_loss:.3f} "
-            f"lr={lr:.2e}")
+        print(f"\n[Epoch {epoch:02d} Results] train_loss={train_loss:.4f} val_loss={val_loss:.4f}")
 
-        
-        if epoch % 5==0:
-            model_save_dir = f"{parent_dir}/model_saves_25.03.2026"
-            os.makedirs(model_save_dir, exist_ok=True)
-            torch.save(model.state_dict(), f"{model_save_dir}/ortho_view_selector_{epoch}.pth")
+        # --- Top-K Saving Logic ---
+        checkpoint_path = f"{model_save_dir}/ep{epoch}_val{val_loss:.4f}.pth"
+        torch.save(model.state_dict(), checkpoint_path)
+        checkpoint_history.append((val_loss, checkpoint_path))
+        checkpoint_history.sort(key=lambda x: x[0])
+
+        if len(checkpoint_history) > TOP_K_TO_KEEP:
+            _, worst_path = checkpoint_history.pop()
+            if os.path.exists(worst_path):
+                os.remove(worst_path)
+
+        # --- Early Stopping Logic ---
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            epochs_without_improvement = 0
+            print(f"★ New Best Score!")
+        else:
+            epochs_without_improvement += 1
+            print(f"Patience: {epochs_without_improvement}/{PATIENCE_LIMIT}")
+
+        if epochs_without_improvement >= PATIENCE_LIMIT:
+            print("Early stopping triggered.")
+            break
 
 if __name__ == "__main__":
-    main()    
+    main()

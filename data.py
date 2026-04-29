@@ -1,4 +1,5 @@
 import shutil
+from cv2 import line
 from tqdm import tqdm
 import os, sys
 import numpy as np
@@ -19,119 +20,106 @@ from torchvision import transforms
 
 
 
+import os
+import pickle # For caching
+from tqdm import tqdm
+from torch.utils.data import Dataset
+from torchvision import transforms
+
 class OrthoViewDataset(Dataset):
-    def __init__(self, dataset_list_path, transform=None):
-        """
-        image_dataset: dict[cad_id -> list of view dicts]
-        """
-        cad_folders = []
-        with open(dataset_list_path, 'r') as fread:
-            for line in fread:
-                line = line.strip()
-                cad_folders.append(line)
-
+    def __init__(self, dataset_list_path, transform=None, cache_path=None):
         self.samples = []
-        for cad_folder in tqdm(cad_folders,
-                        total=len(cad_folders),
-                        desc="Processing CAD folders",
-                        unit="folder"):
-
-            ## Generate labels
-            ortho_views_path = f'{cad_folder}/ortho_views.txt'
-
-            with open(ortho_views_path, 'r') as f:
-                image_paths, labels = [], []
-                for line in f:
-                    line = line.strip()
-                    try:
-                        view_str, num_views = line.split(':')
-                        if int(num_views)>0: label=1
-                        else: label=0
-                        el_angle = view_str.split('_e')[1].split('.')[0]
-                        az_angle = view_str.split('_a')[1].split('.')[0]
-                        image_paths.append(f"{cad_folder}/"
-                                                "renders_pyvista_mesh_initial/"
-                                                f"view_e{int(el_angle)}_a{int(az_angle)}.png")
-                        labels.append(label)
-                    except: pass
-
-            ## Adding extra views to choose better
-            for img_name in os.listdir(f'{cad_folder}/renders_pyvista_mesh_initial'):
-                n_azimuth = 12
-                elevations, azimuths = [-90, -72, -54, -36, -18, 0, 18, 36, 54, 72, 90], [(360 / n_azimuth) * a for a in range(n_azimuth)]
-                # if img_name.startswith('view_e') and img_name not in image_paths:
-                #     el_angle = img_name.split('_e')[1].split('.')[0]
-                #     az_angle = img_name.split('_a')[1].split('.')[0]
-                #     #elevations = [-90 + (180 /(n_elevation+1)) * e for e in range(1, n_elevation+1)] 
-                #     if el_angle in elevations and az_angle in azimuths:
-                #         image_paths.append(f"{cad_folder}/"
-                #                             f"renders_pyvista_mesh_initial/{img_name}")
-                #         labels.append(0)
-                for elevation in elevations:
-                    for azimuth in azimuths:
-                        img_name = f"view_e{elevation}_a{azimuth}.png"
-                        if img_name not in image_paths:
-                            image_paths.append(f"{cad_folder}/"
-                                            f"renders_pyvista_mesh_initial/{img_name}")
-                            labels.append(0)
-                        if elevation in [-90, 90]: # Only one view for top and bottom views since azimuth doesn't matter
-                            break
-            
-            self.samples.append(
-                {'cad_id': os.path.basename(cad_folder),
-                'image_paths': image_paths,
-                'labels': labels})
-
-        ## Dino specific transform composition
-        # self.try_transform = transforms.Compose([
-        #     transforms.Resize(224, interpolation=transforms.InterpolationMode.BICUBIC),
-        #     transforms.CenterCrop(224)])
         
-        self.transform = transforms.Compose([
+        # 1. Try to load from cache first
+        if cache_path and os.path.exists(cache_path):
+            print(f"Loading dataset metadata from cache: {cache_path}")
+            with open(cache_path, 'rb') as f:
+                self.samples = pickle.load(f)
+        else:
+            # Pre-calculate constants
+            n_azimuth = 12
+            elevations = [-90, -72, -54, -36, -18, 0, 18, 36, 54, 72, 90]
+            azimuths = [(360 / n_azimuth) * a for a in range(n_azimuth)]
+            
+            with open(dataset_list_path, 'r') as fread:
+                cad_folders = [line.strip() for line in fread if line.strip()]
+
+            for cad_folder in tqdm(cad_folders, desc="Processing CAD folders"):
+                image_paths = []
+                labels_dict, labels = {}, []
+                
+                # Path to the render folder
+                render_dir = os.path.join(cad_folder, "renders_pyvista_mesh_initial")
+                ortho_views_path = os.path.join(cad_folder, 'ortho_views.txt')
+
+                # 2. Parse labels from txt
+                if os.path.exists(ortho_views_path):
+                    with open(ortho_views_path, 'r') as f:
+                        for line in f:
+                            view_str, num_points = line.strip().split(':')
+                            #label = 1 if int(num_points) > 0 else 0
+                            label = int(num_points)
+
+                            # Logic to extract angles (kept as per your original code)
+                            el_angle = int(view_str.split('_e')[1].split('.')[0].split('_')[0])
+                            az_angle = int(view_str.split('_a')[1].split('.')[0].split('_')[0])
+
+                            img_name = f"view_e{el_angle}_a{az_angle}.png"
+                            labels_dict[img_name] = label
+                            
+
+                # 3. Add extra views without calling os.listdir
+                for el in elevations:
+                    for az in azimuths:
+                        img_name = f"view_e{int(el)}_a{int(az)}.png"
+                        image_paths.append(os.path.join(render_dir, img_name))
+                        labels.append(labels_dict.get(img_name, 0))  # Default to 0 if not found
+                        if el in [-90, 90]: # Top/Bottom logic
+                            break
+                
+                self.samples.append({
+                    'cad_id': os.path.basename(cad_folder),
+                    'image_paths': image_paths,
+                    'labels': labels
+                })
+
+            # Save cache for next time
+            if cache_path:
+                with open(cache_path, 'wb') as f:
+                    pickle.dump(self.samples, f)
+
+        # Transforms (standardized)
+        self.transform = transform or transforms.Compose([
             transforms.Resize(224, interpolation=transforms.InterpolationMode.BICUBIC),
             transforms.CenterCrop(224),
             transforms.ToTensor(),
-            transforms.Normalize(
-                mean=(0.485, 0.456, 0.406),
-                std=(0.229, 0.224, 0.225),
-            ),])
+            transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+        ])
 
     def __len__(self):
         return len(self.samples)
 
-    def __getitem__(self, idx=None):
-        
+    def __getitem__(self, idx):
         s = self.samples[idx]
+        imgs, labels, file_names = [], [], []
 
-
-        ## Randomize image order so the network is agnostic to the view ordering and learns to focus on views alone
-        #perm = torch.randperm(len(s['labels']))
-
-        ## For now, we will keep the order fixed and add positional embeddings to the model to learn any view-specific patterns if they exist. We can always randomize later if needed.
-        perm = torch.arange(len(s['labels']))
-
-        imgs, labels, perm_image_paths = [],[], []
-        for perm_idx in perm:
-            img_path = s['image_paths'][perm_idx]
-            img = Image.open(img_path).convert('RGB')
-            if self.transform:
-                img = self.transform(img)
-
-            label = torch.tensor(s['labels'][perm_idx], dtype=torch.float32)
-            imgs.append(img)
-            labels.append(label)
-            perm_image_paths.append(os.path.basename(img_path))
-
-
-        # Stack into tensors
-        images_tensor = torch.stack(imgs, dim=0)           # (V, 3, H, W)
-        labels_tensor = torch.tensor(labels, dtype=torch.float32)  # (V,)
+        for i, img_path in enumerate(s['image_paths']):
+            # Efficiency tip: Use try-except here in case a file is missing
+            try:
+                img = Image.open(img_path).convert('RGB')
+                if self.transform:
+                    img = self.transform(img)
+                imgs.append(img)
+                labels.append(s['labels'][i])
+                file_names.append(os.path.basename(img_path))
+            except Exception as e:
+                continue 
 
         return {
-            "images": images_tensor,
-            "labels": labels_tensor,
+            "images": torch.stack(imgs, dim=0),
+            "labels": torch.tensor(labels, dtype=torch.float32),
             "cad_id": s["cad_id"],
-            "file_order": perm_image_paths
+            "file_order": file_names
         }
 
 

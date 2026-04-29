@@ -36,18 +36,46 @@ class DinoEncoder(nn.Module):
 # -----------------------------
 # View Selection Network
 # -----------------------------
+# class ViewScoringNet(nn.Module):
+#     def __init__(self, embed_dim, num_heads=4):
+#         super().__init__()
+
+#         self.attn = nn.MultiheadAttention(
+#             embed_dim=embed_dim,
+#             num_heads=num_heads,
+#             batch_first=True,
+#         )
+
+#         self.mlp = nn.Sequential(
+#             nn.LayerNorm(embed_dim),
+#             nn.Linear(embed_dim, embed_dim // 2),
+#             nn.GELU(),
+#             nn.Dropout(0.4),
+#             nn.Linear(embed_dim // 2, 1),
+#         )
+
+#     def forward(self, x):
+#         """
+#         x: (B, V, D)
+#         returns: (B, V)
+#         """
+#         attn_out, _ = self.attn(x, x, x)   # self-attention
+#         scores = self.mlp(attn_out).squeeze(-1)
+#         return scores
+
 class ViewScoringNet(nn.Module):
     def __init__(self, embed_dim, num_heads=4):
         super().__init__()
 
+        self.norm1 = nn.LayerNorm(embed_dim)
         self.attn = nn.MultiheadAttention(
             embed_dim=embed_dim,
             num_heads=num_heads,
             batch_first=True,
         )
 
+        self.norm2 = nn.LayerNorm(embed_dim)
         self.mlp = nn.Sequential(
-            nn.LayerNorm(embed_dim),
             nn.Linear(embed_dim, embed_dim // 2),
             nn.GELU(),
             nn.Dropout(0.4),
@@ -57,38 +85,73 @@ class ViewScoringNet(nn.Module):
     def forward(self, x):
         """
         x: (B, V, D)
-        returns: (B, V)
         """
-        attn_out, _ = self.attn(x, x, x)   # self-attention
-        scores = self.mlp(attn_out).squeeze(-1)
+        # 1. Pre-norm and Attention
+        norm_x = self.norm1(x)
+        attn_out, _ = self.attn(norm_x, norm_x, norm_x)
+        
+        # 2. THE FIX: Residual Connection
+        # This allows pristine DINO features + PE to bypass the random attention weights
+        x = x + attn_out  
+        
+        # 3. Final norm and scoring
+        scores = self.mlp(self.norm2(x)).squeeze(-1)
         return scores
-
 
 # -----------------------------
 # Full model
 # -----------------------------
+# class DinoViewSelector(nn.Module):
+#     def __init__(self, num_views):
+#         super().__init__()
+#         self.encoder = DinoEncoder()
+#         self.scorer = ViewScoringNet(
+#             embed_dim=self.encoder.embed_dim
+#         )
+
+#         self.positional_embeddings = nn.Parameter(torch.randn(num_views, self.encoder.embed_dim) * 0.02)
+
+#     def forward(self, images):
+#         """
+#         images: (B, V, 3, H, W)
+#         """
+#         B, V, C, H, W = images.shape
+#         images = images.view(B * V, C, H, W)
+
+#         feats = self.encoder(images)
+#         feats = feats.view(B, V, -1)
+
+#         #Add positional embeddings to the view features here if desired (e.g., learnable or fixed positional embeddings based on view index)
+#         feats = feats + self.positional_embeddings.unsqueeze(0)  # (1, V, D) -> broadcast to (B, V, D)
+#         scores = self.scorer(feats)
+#         return scores
+
 class DinoViewSelector(nn.Module):
     def __init__(self, num_views):
         super().__init__()
         self.encoder = DinoEncoder()
-        self.scorer = ViewScoringNet(
-            embed_dim=self.encoder.embed_dim
-        )
-
-        self.positional_embeddings = nn.Parameter(torch.randn(num_views, self.encoder.embed_dim) * 0.02)
+        
+        # Define a smaller dimension for PE, e.g., 64 or 128
+        self.pe_dim = 128 
+        self.positional_embeddings = nn.Parameter(torch.randn(num_views, self.pe_dim) * 0.02)
+        
+        # The Scorer now takes DINO dim + PE dim
+        combined_dim = self.encoder.embed_dim + self.pe_dim
+        self.scorer = ViewScoringNet(embed_dim=combined_dim)
 
     def forward(self, images):
-        """
-        images: (B, V, 3, H, W)
-        """
         B, V, C, H, W = images.shape
         images = images.view(B * V, C, H, W)
 
         feats = self.encoder(images)
         feats = feats.view(B, V, -1)
 
-        #Add positional embeddings to the view features here if desired (e.g., learnable or fixed positional embeddings based on view index)
-        feats = feats + self.positional_embeddings.unsqueeze(0)  # (1, V, D) -> broadcast to (B, V, D)
+        # Expand PE to match Batch size
+        pe = self.positional_embeddings.unsqueeze(0).expand(B, -1, -1)
+
+        # CONCATENATE instead of adding
+        feats = torch.cat([feats, pe], dim=-1)  # Shape: (B, V, D + pe_dim)
+
         scores = self.scorer(feats)
         return scores
 
@@ -96,29 +159,59 @@ class DinoViewSelector(nn.Module):
 # -----------------------------
 # Loss Function
 # -----------------------------
+# def pairwise_ranking_loss(scores, labels, margin=1.0):
+#     """
+#     scores: (B, V)
+#     labels: (B, V)  binary or integer
+#     """
+#     loss = scores.sum() * 0.0
+#     count = 0
+
+#     for b in range(scores.shape[0]):
+#         pos = scores[b][labels[b] > 0]
+#         neg = scores[b][labels[b] == 0]
+
+#         if len(pos) == 0 or len(neg) == 0:
+#             continue
+
+#         diff = margin - (pos[:, None] - neg[None, :])
+#         loss += torch.clamp(diff, min=0).mean()
+#         count += 1
+
+#     if count == 0:
+#         return scores.sum() * 0.0
+
+#     return loss / count
+
 def pairwise_ranking_loss(scores, labels, margin=1.0):
-    """
-    scores: (B, V)
-    labels: (B, V)  binary or integer
-    """
-    loss = scores.sum() * 0.0
+    B, V = scores.shape
+    loss = 0.0
     count = 0
 
-    for b in range(scores.shape[0]):
-        pos = scores[b][labels[b] > 0]
-        neg = scores[b][labels[b] == 0]
+    for b in range(B):
+        s = scores[b]
+        y = labels[b].float()
 
-        if len(pos) == 0 or len(neg) == 0:
+        if y.max() > 0:
+            y = y / y.max()
+
+        diff_s = s[:, None] - s[None, :]
+        diff_y = y[:, None] - y[None, :]
+
+        mask = diff_y > 0
+        if mask.sum() == 0:
             continue
 
-        diff = margin - (pos[:, None] - neg[None, :])
-        loss += torch.clamp(diff, min=0).mean()
+        margin_ij = margin * diff_y[mask]
+
+        weights = diff_y[mask] ** 2   # <-- KEY LINE
+
+        loss_ij = torch.clamp(margin_ij - diff_s[mask], min=0) * weights
+
+        loss += loss_ij.mean()
         count += 1
 
-    if count == 0:
-        return scores.sum() * 0.0
-
-    return loss / count
+    return loss / max(count, 1)
 
 if __name__ == '__main__':
 

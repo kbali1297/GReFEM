@@ -455,22 +455,29 @@ import concurrent.futures # Needed for the TimeoutError exception
 
 if __name__ == "__main__":
 
-    dataset_path = '/data/1bali/Other_LLM_projects/ECCV_2026/ABC_CAD_Dataset_small2'
+    # dataset_path = '/data/1bali/Other_LLM_projects/ECCV_2026/ABC_CAD_Dataset_small2'
     log_file_path = '/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/generate_orthoviews.log' # Define the path to your log file
 
-    # --- START OF NEW LOGIC ---
-    print(f"Reading existing log file: {log_file_path}")
-    already_processed = parse_log_file(log_file_path)
-    print(f"Found {len(already_processed)} folders already processed. They will be skipped.")
+    # # --- START OF NEW LOGIC ---
+    # print(f"Reading existing log file: {log_file_path}")
+    # already_processed = parse_log_file(log_file_path)
+    # print(f"Found {len(already_processed)} folders already processed. They will be skipped.")
 
-    all_cad_folders = os.listdir(dataset_path)
-    # Filter the list to only include folders that have NOT been processed
-    cad_folders_to_process = [f for f in all_cad_folders if f not in already_processed]
+    # all_cad_folders = os.listdir(dataset_path)
+    # # Filter the list to only include folders that have NOT been processed
+    # cad_folders_to_process = [f for f in all_cad_folders if f not in already_processed]
 
-    print(f"Total folders to process: {len(cad_folders_to_process)} out of {len(all_cad_folders)}")
-    # --- END OF NEW LOGIC ---
+    # print(f"Total folders to process: {len(cad_folders_to_process)} out of {len(all_cad_folders)}")
+    # # --- END OF NEW LOGIC ---
 
     # The rest of the code now works on the filtered list
+    cad_folders_to_process = []
+    dataset_path = '/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/dataset'
+    with open('freecad.log', 'r') as log_f:
+        for line in log_f:
+            folder_path = line.strip()
+            cad_folder = os.path.basename(folder_path)
+            cad_folders_to_process.append(cad_folder)
     tasks = [(cad_folder, dataset_path) for cad_folder in cad_folders_to_process]
     
     # If there are no new tasks, exit gracefully

@@ -5,6 +5,7 @@ import trimesh
 from scipy.spatial import cKDTree
 from generate_renders import render_mesh_views
 from tqdm import tqdm
+from utils import filter_points_by_density_fast
 
 def calculate_cloud_density(points, mesh_bbox_diagonal):
     """
@@ -56,7 +57,7 @@ def upsample_concave_edges(mesh, feature_angle=30.0, target_spacing=1.0):
                 p2 = mesh.vertices[adj_edges[i][1]]
                 
                 dist = np.linalg.norm(p2 - p1)
-                num_pts = 15 #max(2, int(np.ceil(dist / target_spacing)))
+                num_pts = max(2, int(np.ceil(dist / target_spacing)))
                 
                 alphas = np.linspace(0, 1, num_pts)
                 sampled_points_on_edge = p1 + alphas[:, None] * (p2 - p1)
@@ -144,12 +145,12 @@ def upsample_concave_surfaces(mesh, feature_angle=30.0, target_spacing=1.0):
 
     
 if __name__ == '__main__':
-    parent_dir = '/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/test_meshes_rebuttal_baseline'
+    parent_dir = '/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/test_meshes_rebuttal_baseline'
     total_llm_points = 0
     total_baseline_points = 0
     for CAD_file_name in sorted(os.listdir(parent_dir)):
         
-        llm_points_path = f'/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/test_meshes_rebuttal_29.03.2026/{CAD_file_name}/refinement_points_ortho_10views_gemini-3-flash-preview_12grid_geo_midprompt_2run.npy'
+        llm_points_path = f'/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/test_meshes/{CAD_file_name}/compression_gemini-3-flash-preview_geo_maxprompt_ortho_5views_11grid_1run/refinement_points_prefilt.npy'
         parser = argparse.ArgumentParser(description="Comprehensive Classical Baseline for Stress Concentration.")
     
         parser.add_argument('--mesh_path', type=str, default=f'{parent_dir}/{CAD_file_name}/renders_pyvista/{CAD_file_name}.obj')
@@ -171,17 +172,23 @@ if __name__ == '__main__':
         llm_points = np.load(args.llm_points_path)
         bbox_diag = np.linalg.norm(mesh_trimesh.bounding_box.extents)
         
-        target_spacing = calculate_cloud_density(llm_points, mesh_bbox_diagonal=bbox_diag)
+        #target_spacing = calculate_cloud_density(llm_points, mesh_bbox_diagonal=bbox_diag)
         #target_spacing = 10 * target_spacing # Loosen the density requirement to get more points for a stronger baseline. Adjust as needed.
+        mesh = trimesh.load(args.mesh_path, force='mesh')
+        bbox_min, bbox_max = mesh.bounds  # shape (2, 3)
+        target_spacing = np.linalg.norm(bbox_max - bbox_min) / (66.667 * 2) # Adjust divisor for more/less density
+    
         print(f"Target Point Spacing derived from LLM: {target_spacing:.5f} units")
 
         # --- 2. Compute Both Dense Heuristics ---
         print(f"\n[1/2] Extracting and upsampling SHARP Concave Edges (> {args.feature_angle}°)...")
         dihedral_points = upsample_concave_edges(mesh_trimesh, feature_angle=args.feature_angle, target_spacing=target_spacing)
+        dihedral_points = filter_points_by_density_fast(dihedral_points, target_spacing * 0.75) # Optional post-filtering to ensure minimum spacing
         print(f"      -> Generated {dihedral_points.shape[0]} points on sharp concave edges.")
         
         print(f"\n[2/2] Extracting and upsampling SMOOTH Concave Surfaces (Holes/Fillets)...")
         curvature_points = upsample_concave_surfaces(mesh_trimesh, feature_angle=args.feature_angle, target_spacing=target_spacing)
+        curvature_points = filter_points_by_density_fast(curvature_points, target_spacing * 0.75) # Optional post-filtering to ensure minimum spacing
         print(f"      -> Generated {curvature_points.shape[0]} points on smooth concave surfaces.")
 
         # --- 3. Combine and De-duplicate the results ---
@@ -218,11 +225,11 @@ if __name__ == '__main__':
         if len(final_refinement_points) > 0:
             pass
             # print("Rendering output views with marked mesh points...")
-            # render_mesh_views(args.mesh_path, 
-            #                 output_dir=f'{output_dir}/renders_pyvista_with_meshpoints_{experiment_name}', 
-            #                 n_azimuth=12, n_elevation=3, orthographic=False, 
-            #                 points_3d=final_refinement_points.tolist(),
-            #                 verbose=True, add_axes=False)
+            render_mesh_views(args.mesh_path, 
+                            output_dir=f'{output_dir}/renders_pyvista_with_meshpoints_{experiment_name}', 
+                            n_azimuth=[60], n_elevation=[-36,36], orthographic=False, 
+                            points_3d=final_refinement_points.tolist(),
+                            verbose=True, add_axes=False, opacity=0.7)
 
         print('\nCombined dense baseline pipeline completed successfully.')
 

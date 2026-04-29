@@ -18,7 +18,7 @@ import MeshPart
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
-def render_mesh_views(mesh_file, output_dir="renders_pyvista_mesh_initial", n_azimuth=12, n_elevation=[-90, -72, -54, -36, -18, 0, 18, 36, 54, 72, 90], orthographic=False, points_3d=None, add_axes=True, verbose=False, axes_size='normal'):
+def render_mesh_views(mesh_file, output_dir="renders_pyvista_mesh_initial", n_azimuth=12, n_elevation=[-90, -72, -54, -36, -18, 0, 18, 36, 54, 72, 90], orthographic=False, points_3d=None, add_axes=True, verbose=False, axes_size='normal', opacity=1.0):
     """
     Render multiple views of a mesh (.obj, .stl, etc.) showing mesh elements (faces & edges).
     """
@@ -82,7 +82,7 @@ def render_mesh_views(mesh_file, output_dir="renders_pyvista_mesh_initial", n_az
 
     for elevation in elevations:
         for azimuth in azimuths:
-    
+            
             # Convert spherical coordinates to Cartesian camera position
             # camera must be placed in the opposite direction of view pointing to the center
             # But pyvista's increasing z-coordinate points inward into screen, so we invert the sign cam = center + radius * view_dir instead of cam = center - radius * view_dir
@@ -103,7 +103,7 @@ def render_mesh_views(mesh_file, output_dir="renders_pyvista_mesh_initial", n_az
                 mesh,
                 color="#cccccc",
                 smooth_shading=False,
-                opacity=1.0,
+                opacity=opacity,
                 lighting=True,
                 specular=0.1,
                 ambient=0.3,
@@ -116,7 +116,7 @@ def render_mesh_views(mesh_file, output_dir="renders_pyvista_mesh_initial", n_az
                         line.tube(radius=edge_mark_factor * radius),
                         color="black",
                         lighting=False,
-                        opacity=1.0,
+                        opacity=opacity,
                     )
             except: 
                 print(f'Could not find feature or boundary edges for {mesh_file}')
@@ -191,6 +191,8 @@ def render_mesh_views(mesh_file, output_dir="renders_pyvista_mesh_initial", n_az
             plotter.close()
             if verbose:
                 print(f"✅ Saved {filename}")
+            
+            if abs(elevation) == 90: break  # No need to continue azimuth loop for top/bottom views since they look the same from all azimuths
 
     if verbose:
         print(f"✅ Finished rendering all mesh views to: {output_dir}")
@@ -353,12 +355,12 @@ def render_mesh_views_with_load(mesh_file, output_dir_prefix="renders_mesh", n_a
                       support_size=0.02,
                       support_thickness=0.008):
     
-    output_dir = f"{output_dir_prefix}_{loading_type}" if loading_type else output_dir_prefix
+    output_dir = f"{output_dir_prefix}" #if loading_type else output_dir_prefix
     os.makedirs(output_dir, exist_ok=True)
     
-    if verbose:
-        print(f"▶️ Processing Mesh: {os.path.abspath(mesh_file)}")
-        print(f"  Mode: {loading_type if loading_type else 'Clean View'}")
+    # if verbose:
+    #     print(f"▶️ Processing Mesh: {os.path.abspath(mesh_file)}")
+    #     print(f"  Mode: {loading_type if loading_type else 'Clean View'}")
 
     mesh = pv.read(mesh_file)
     if mesh.n_points == 0: 
@@ -380,6 +382,11 @@ def render_mesh_views_with_load(mesh_file, output_dir_prefix="renders_mesh", n_a
     radius = np.linalg.norm([xmax-xmin, ymax-ymin, zmax-zmin])/2 * (1.2 if orthographic else 4.0)
     edge_mark_factor = 0.003 if orthographic else 0.001
     load_color = "#00008B" # Dark Blue
+
+    # --- Pre-process 3D Points ---
+    pd_points = None
+    if points_3d is not None and len(points_3d) > 0:
+        pd_points = pv.PolyData(np.array(points_3d))
 
     loading_items = [] 
 
@@ -409,8 +416,7 @@ def render_mesh_views_with_load(mesh_file, output_dir_prefix="renders_mesh", n_a
                 loading_items.append({'mesh': cloud.glyph(orient='v', scale=False, factor=arr_len), 'color': load_color})
 
             elif loading_type == 'torsion':
-                # REDUCED RED AXIS: Vertical stub through the top centroid
-                # Extends just a bit into the object and out of it
+                # create_dashed_line is assumed to be defined elsewhere
                 axis = create_dashed_line([cx_top, ymax - L*0.1, cz_top], 
                                           [cx_top, ymax + L*0.2, cz_top], L)
                 if axis: loading_items.append({'mesh': axis, 'color': 'red'})
@@ -425,8 +431,6 @@ def render_mesh_views_with_load(mesh_file, output_dir_prefix="renders_mesh", n_a
                 loading_items.append({'mesh': cloud.glyph(orient='v', scale=False, factor=arr_len*0.8), 'color': load_color})
 
             elif loading_type == 'bending':
-                # REDUCED RED AXIS: Moment Axis along Z through the top centroid
-                # Length is proportional to the local arrow field size
                 axis = create_dashed_line([cx_top, ymax, cz_top - L*0.15], 
                                           [cx_top, ymax, cz_top + L*0.15], L)
                 if axis: loading_items.append({'mesh': axis, 'color': 'red'})
@@ -463,7 +467,7 @@ def render_mesh_views_with_load(mesh_file, output_dir_prefix="renders_mesh", n_a
     elevations = n_elevation if isinstance(n_elevation, list) else [-90 + (180/(n_elevation+1))*e for e in range(1, n_elevation+1)]
     azimuths = n_azimuth if isinstance(n_azimuth, list) else [(360/n_azimuth)*a for a in range(n_azimuth)]
 
-    if verbose: print(f"  ...Rendering views to {os.path.abspath(output_dir)}")
+    #if verbose: print(f"  ...Rendering views to {os.path.abspath(output_dir)}")
 
     for elevation in elevations:
         for azimuth in azimuths:
@@ -475,25 +479,42 @@ def render_mesh_views_with_load(mesh_file, output_dir_prefix="renders_mesh", n_a
             plotter.set_background("white")
             if orthographic: plotter.enable_parallel_projection()
             
+            # Base mesh
             plotter.add_mesh(mesh_clean, color="#cccccc", smooth_shading=False, opacity=1.0, lighting=True)
             
+            # Feature edges (tubes)
             feat_edges = mesh_clean.extract_feature_edges(feature_angle=30)
             if feat_edges.n_points > 0:
                 plotter.add_mesh(feat_edges.tube(radius=edge_mark_factor * radius), color="black", lighting=False)
 
+            # --- ADDING 3D POINTS (RED DOTS) ---
+            if pd_points is not None:
+                plotter.add_points(
+                    pd_points,
+                    color="red",
+                    point_size=15,  # Matches render_mesh_views
+                    render_points_as_spheres=True,
+                    lighting=False
+                )
+
+            # Loading arrows/supports
             for item in loading_items:
                 if item['mesh'].n_points > 0:
                     plotter.add_mesh(item['mesh'], color=item['color'], lighting=False, ambient=1.0)
 
-            plotter.camera_position = [(cam_x, cam_y, cam_z), [cx_glob, cy_glob, cz_glob], [0, 1, 0]]
-            if orthographic: plotter.camera.parallel_scale = radius * 0.8
+            # Camera Setup
+            up_vector = (0, 0, -1) if abs(elevation) == 90 else (0, 1, 0)
+            plotter.camera_position = [(cam_x, cam_y, cam_z), [cx_glob, cy_glob, cz_glob], up_vector]
+            
+            if orthographic: 
+                plotter.camera.parallel_scale = radius * 0.8
                 
             filename = os.path.join(output_dir, f"view_e{elevation:.0f}_a{azimuth:.0f}.png")
             plotter.show(screenshot=filename)
             plotter.close()
-            if verbose: 
-                print(f"    ✅ Saved {os.path.abspath(filename)}")
 
+            if elevation in [-90, 90]: break  # No need to continue azimuth loop for top/bottom views
+            
     if verbose: print(f"✅ COMPLETED task for {loading_type}")
     return f"[DONE] {loading_type}"
 
@@ -523,7 +544,7 @@ def render_mesh_views_with_load(mesh_file, output_dir_prefix="renders_mesh", n_a
 #     #                       n_elevation=9, orthographic=True, add_axes=False)
 
 def process_single_folder(args):
-    CAD_Folder, path_dir, load_case = args[1]
+    CAD_Folder, path_dir, load_case = args
 
     try:
 
@@ -546,7 +567,7 @@ def process_single_folder(args):
             mesh_obj_file,
             output_dir_prefix=output_dir,
             n_azimuth=12,
-            n_elevation=9,
+            n_elevation=[-90, -72, -54, -36, -18, 0, 18, 36, 54, 72, 90],
             orthographic=True,
             add_axes=False,
             loading_type=load_case,
@@ -562,7 +583,7 @@ if __name__ == '__main__':
 
     path_dir = './test_meshes_7.04.2026'
     cad_folders = os.listdir(path_dir)
-    load_cases = ['torsion', 'bending', 'shear', 'compression']
+    load_cases = ['torsion', 'bending', 'compression']
     tasks = [(folder, path_dir, load) for folder in cad_folders for load in load_cases]
 
     # for task in enumerate(tasks):
@@ -578,3 +599,64 @@ if __name__ == '__main__':
 
         for f in tqdm(as_completed(futures), total=len(futures)):
             print(f.result())
+
+
+# def process_single_folder(args):
+#     CAD_Folder, path_dir = args
+
+#     try:
+
+#         #mesh_obj_file = f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj'
+#         os.makedirs(f'{path_dir}/{CAD_Folder}/renders_pyvista', exist_ok=True)
+#         os.makedirs(f'{path_dir}/{CAD_Folder}/renders_pyvista_mesh_initial', exist_ok=True)
+
+#         flag=0
+#         for file in os.listdir(f'{path_dir}/{CAD_Folder}'):
+#             if file.endswith('.obj'):
+#                 mesh_obj_file = f'{path_dir}/{CAD_Folder}/{file}'
+#                 shutil.copy(mesh_obj_file, f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj')
+#                 flag=1
+#                 break
+        
+#         if flag==0:
+#             mesh_obj_file = f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj'
+        
+#         output_dir = f'{path_dir}/{CAD_Folder}/renders_pyvista_mesh_initial'
+
+#         if not os.path.exists(mesh_obj_file):
+#             return f"[SKIP] {CAD_Folder} (no mesh)"
+
+#         render_mesh_views(
+#             mesh_obj_file,
+#             output_dir=output_dir,
+#             n_azimuth=12,
+#             n_elevation=[-90,90],
+#             orthographic=True,
+#             add_axes=False
+#         )
+
+#         return f"[DONE] {CAD_Folder}"
+
+#     except Exception as e:
+#         return f"[ERROR] {CAD_Folder}: {str(e)}"
+
+# if __name__ == '__main__':
+
+#     # path_dir = '/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/test_meshes_rebuttal'
+#     # cad_folders = os.listdir(path_dir)
+#     # tasks = [(folder, path_dir) for folder in cad_folders]
+
+#     tasks = []
+#     with open('/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/val.log', 'r') as log_file:
+#         for line in log_file:
+#             folder_path = line.strip()
+#             tasks.append((os.path.basename(folder_path), os.path.dirname(folder_path)))
+    
+#     # 🔥 Tune this carefully
+#     max_workers = 10   # start safe (VTK + XVFB heavy)
+
+#     with ProcessPoolExecutor(max_workers=max_workers) as executor:
+#         futures = [executor.submit(process_single_folder, task) for task in tasks]
+
+#         for f in tqdm(as_completed(futures), total=len(futures)):
+#             print(f.result())

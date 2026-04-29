@@ -102,118 +102,56 @@ def plot_aggregated_metric_flexible(
     plt.close()
     print(f"Saved: {full_path}")
 
-# def plot_aggregated_metric_icml(
-#     df,
-#     metric_col,
-#     xlabel="Number of views used for inference",
-#     ylabel="",
-#     title="",
-#     results_dir=".",
-#     filename="plot.pdf",
-#     fmt="pdf",
-#     ylim=None,
-# ):
-#     import os
-#     import numpy as np
-#     import matplotlib.pyplot as plt
+    return agg
 
-#     # Fix filename format
-#     filename_fmt = filename.split('.')[-1].lower()
-#     filename = filename.replace(f'.{filename_fmt}', f'.{fmt}')
+def plot_micro_aggregated_metric(
+    df, x_col="num_views_inference", hue_col="view_type",
+    xlabel="Number of views", ylabel="", title="", results_dir=".", filename="plot.pdf"
+):
+    import os
+    import matplotlib.pyplot as plt
 
-#     # --- AGGREGATION (MEAN AND STD DEVIATION ACROSS RUNS) ---
-#     # Group by the x-axis (num_views) and the line type (view_type)
-#     # Then calculate both mean and std for the metric column for all runs in that group
-#     agg = (
-#         df
-#         .groupby(["num_views_inference", "view_type"])[metric_col]
-#         .agg(['mean', 'std'])
-#         .reset_index()
-#     )
-
-#     # --- ICML style ---
-#     plt.style.use('default')
-#     plt.rc('text', usetex=False)
-#     plt.rc('font', family='serif')
-#     plt.rcParams['mathtext.fontset'] = 'stix'
-
-#     plt.figure(figsize=(5.0, 2.7))
-#     ax = plt.gca()
-
-#     # --- PLOT FOR EACH VIEW TYPE (e.g., 'ortho', 'random') ---
-#     view_types = agg['view_type'].unique()
+    plt.figure(figsize=(5.0, 2.7))
+    ax = plt.gca()
     
-#     colors = {'ortho': 'blue', 'random': 'red'}
-#     markers = {'ortho': 'o', 'random': 's'}
-#     labels = {'ortho': 'GReFEM Views', 'random': 'Random Views'}
-    
-#     for view_type in view_types:
-#         if view_type not in colors: continue # Skip if not a primary type
+    hues = df[hue_col].unique()
+    colors = plt.cm.tab10(np.linspace(0, 1, len(hues)))
+    markers = ['o', 's', '^', 'D', 'v', 'p']
+
+    for idx, hue_val in enumerate(hues):
+        subset = df[df[hue_col] == hue_val]
         
-#         subset = agg[agg['view_type'] == view_type].sort_values('num_views_inference')
+        # Group by x_col and calculate sums for the micro-metric
+        grouped = subset.groupby(x_col)[['matched_refine', 'num_refine', 'matched_stress', 'num_stress']].sum().reset_index()
         
-#         x = subset['num_views_inference']
-#         y_mean = subset['mean']
-#         y_std = subset['std']
+        # Calculate the Micro Metrics per X-axis step
+        grouped['micro_precision'] = grouped['matched_refine'] / grouped['num_refine']
+        grouped['micro_recall'] = grouped['matched_stress'] / grouped['num_stress']
+        grouped['micro_F1'] = 2 * (grouped['micro_precision'] * grouped['micro_recall']) / (grouped['micro_precision'] + grouped['micro_recall'])
         
-#         # Plot the mean line
-#         ax.plot(
-#             x,
-#             y_mean,
-#             marker=markers[view_type],
-#             linewidth=1.5,
-#             markersize=3,
-#             label=labels[view_type],
-#             color=colors[view_type]
-#         )
-        
-#         # Plot the shaded standard deviation region
-#         ax.fill_between(
-#             x,
-#             y_mean - y_std,
-#             y_mean + y_std,
-#             color=colors[view_type],
-#             alpha=0.15, # Make it semi-transparent
-#             linewidth=0
-#         )
+        # Choose which metric to plot based on ylabel (as a quick hack)
+        if "Precision" in ylabel: y_vals = grouped['micro_precision']
+        elif "Recall" in ylabel or "Coverage" in ylabel: y_vals = grouped['micro_recall']
+        else: y_vals = grouped['micro_F1']
 
-#     # ---- Labels ----
-#     plt.xlabel(xlabel, fontsize=10, fontweight='bold')
-#     plt.ylabel(ylabel, fontsize=14, fontweight='bold')
-#     plt.title(title, fontsize=10, pad=6, fontweight='bold')
+        ax.plot(
+            grouped[x_col], y_vals,
+            marker=markers[idx % len(markers)],
+            linewidth=1.5, markersize=3,
+            label=f"{hue_col}: {hue_val}", color=colors[idx]
+        )
 
-#     plt.legend(fontsize=9, framealpha=0.9)
+    plt.xlabel(xlabel, fontsize=10, fontweight='bold')
+    plt.ylabel(ylabel, fontsize=14, fontweight='bold')
+    plt.title(title, fontsize=10, pad=6, fontweight='bold')
+    plt.legend(fontsize=9)
+    plt.grid(True, axis="y", alpha=0.3)
+    ax.xaxis.set_major_locator(plt.MaxNLocator(prune=None, integer=True))
+    plt.tight_layout()
 
-#     # ---- Grid ----
-#     plt.grid(True, which="major", axis="y", alpha=0.3, linewidth=0.5)
-
-#     # ---- Ticks ----
-#     ax.tick_params(labelsize=9)
-#     ax.yaxis.set_major_locator(plt.MaxNLocator(nbins=6))
-#     ax.xaxis.set_major_locator(plt.MaxNLocator(prune=None, integer=True)) # Ensure integer ticks on x-axis
-
-#     if ylim is not None:
-#         plt.ylim(ylim)
-
-#     plt.tight_layout(pad=0.4)
-
-#     # ---- Save ----
-#     save_kwargs = {'dpi': 300, 'bbox_inches': 'tight', 'format': fmt}
-#     os.makedirs(results_dir, exist_ok=True)
-#     full_path = os.path.join(results_dir, filename)
-#     plt.savefig(full_path, **save_kwargs)
-#     plt.close()
-
-#     print(f"Saved: {full_path} ({fmt.upper()})")
-
-#     # ---- Return overall stats if needed (optional) ---
-#     # This part can be simplified or removed if you only care about the plots
-#     overall_stats = df.groupby("view_type")[metric_col].agg(['mean', 'std']).to_dict('index')
-#     print("Overall Stats (across all view counts):")
-#     for view_type, stats in overall_stats.items():
-#         print(f"  {view_type}: {stats['mean']:.3f} ± {stats['std']:.3f}")
-        
-#     return overall_stats
+    os.makedirs(results_dir, exist_ok=True)
+    plt.savefig(os.path.join(results_dir, filename), dpi=300, bbox_inches='tight')
+    plt.close()
 
 def analyze_stability(df, metric="F1"):
     """
@@ -293,31 +231,28 @@ def read_pos_points(pos_file, remove_top_bottom_dist, top_percentile=99.9):
 
 def precision_recall_f1(stress_pts, refine_pts, r, tree_stress=None, tree_refine=None):
     """
-    Compute precision, recall, and F1 score between stress points and refinement points.
-
-    Args:
-        stress_pts: (Ns, 3) array of high-stress points (ground truth)
-        refine_pts: (Nr, 3) array of refinement points (prediction)
-        r: distance threshold (e.g. mesh size h)
-
-    Returns:
-        precision, recall, f1
+    Compute precision, recall, and F1 score, AND return raw point counts for micro-averaging.
     """
-    if len(stress_pts) == 0 or len(refine_pts) == 0:
-        return 0.0, 0.0, 0.0
+    num_stress = len(stress_pts)
+    num_refine = len(refine_pts)
+
+    if num_stress == 0 or num_refine == 0:
+        return 0.0, 0.0, 0.0, 0, 0, num_stress, num_refine
 
     if tree_stress is None:
         tree_stress = cKDTree(stress_pts)
     if tree_refine is None:
         tree_refine = cKDTree(refine_pts)
 
-    # Recall: stress → refine
+    # Recall: stress → refine (How many GT stress points were successfully covered by predicted points?)
     dist_s_to_r, _ = tree_refine.query(stress_pts, k=1)
-    recall = np.mean(dist_s_to_r <= r)
+    matched_stress = np.sum(dist_s_to_r <= r)
+    recall = matched_stress / num_stress
 
-    # Precision: refine → stress
+    # Precision: refine → stress (How many predicted points actually hit a GT stress area?)
     dist_r_to_s, _ = tree_stress.query(refine_pts, k=1)
-    precision = np.mean(dist_r_to_s <= r)
+    matched_refine = np.sum(dist_r_to_s <= r)
+    precision = matched_refine / num_refine
 
     # F1 score
     if precision + recall == 0:
@@ -325,15 +260,13 @@ def precision_recall_f1(stress_pts, refine_pts, r, tree_stress=None, tree_refine
     else:
         f1 = 2 * precision * recall / (precision + recall)
 
-    if np.isnan(precision) or np.isnan(recall):
-        precision, recall, f1 = 0.0, 0.0, 0.0
-    return precision, recall, f1
+    return precision, recall, f1, matched_stress, matched_refine, num_stress, num_refine
 
 if __name__ == '__main__':
 
-    df_cache_path = "/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/df_rebuttal_30.03.2026.csv"
-    parent_dir = f'/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/test_meshes_rebuttal_29.03.2026'  #
-    plot_save_dir = f'/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/logs_mesh_plots_rebuttal_30.03.2026'  #
+    df_cache_path = "/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/df_neurips_2026.csv"
+    parent_dir = f'/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/test_meshes'  #
+    plot_save_dir = f'/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/logs_plots'  #
     infer_mesh_points_dir = f'/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/logs_large_infer_meshpoints_30.03.2026'  #for gemini refer to the logs in 29.03.2026 folder please, for all other models the former contains the log files
         
     os.makedirs(plot_save_dir, exist_ok=True)
@@ -384,10 +317,12 @@ if __name__ == '__main__':
             '00230003':                                                     4*0.645,
             '00230017':                                                     4*0.7228,
         }
-        if os.path.exists('/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/zz_points_dicts'):
-            with open('/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/zz_points_dicts/zz_points_dict_rebuttal_28.03.2026.pkl', 'rb') as f:
+
+        load_cases = ['compression', 'torsion', 'bending']
+        if os.path.exists('/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/zz_points_dicts'):
+            with open('/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/zz_points_dicts/zz_points_dict_neurips.pkl', 'rb') as f:
                 zz_points_dict = pickle.load(f)
-            with open('/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/zz_points_dicts/zz_points_tree_dict_rebuttal_28.03.2026.pkl', 'rb') as f:
+            with open('/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/zz_points_dicts/zz_points_tree_dict_neurips.pkl', 'rb') as f:
                 zz_points_tree_dict = pickle.load(f)
         else:
             print('Computing zz points for all meshes...')
@@ -395,17 +330,18 @@ if __name__ == '__main__':
             zz_points_dict, zz_points_tree_dict = {}, {}
             radius_dict = {}
             for mesh_name in tqdm(os.listdir(parent_dir), total=len(os.listdir(parent_dir))):
-                zz_pos_path = f'/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/test_meshes_rebuttal_26.03.2026/{mesh_name}/fine_mesh_zz.pos'
-                zz_points, _ = read_pos_points(zz_pos_path, remove_top_bottom_dist=r_thresh[mesh_name])
-                zz_points_dict[mesh_name] = zz_points
-                ## Compute tree
-                zz_points_tree_dict[mesh_name] = cKDTree(zz_points)
-                #center = zz_points.mean(axis=0)
-                #radius_dict[mesh_name] = np.linalg.norm(zz_points - center, axis=1).max()
-            os.makedirs('/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/zz_points_dicts', exist_ok=True)
-            with open('/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/zz_points_dicts/zz_points_dict_rebuttal_28.03.2026.pkl', 'wb') as f:
+                for load_case in load_cases:
+                    zz_pos_path = f'/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/test_meshes/{mesh_name}/fine_mesh_{load_case}_zz.pos'
+                    zz_points, _ = read_pos_points(zz_pos_path, remove_top_bottom_dist=r_thresh[mesh_name])
+                    zz_points_dict[f'{mesh_name}_{load_case}'] = zz_points
+                    ## Compute tree
+                    zz_points_tree_dict[f'{mesh_name}_{load_case}'] = cKDTree(zz_points)
+                    #center = zz_points.mean(axis=0)
+                    #radius_dict[f'{mesh_name}_{load_case}'] = np.linalg.norm(zz_points - center, axis=1).max()
+            os.makedirs('/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/zz_points_dicts', exist_ok=True)
+            with open('/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/zz_points_dicts/zz_points_dict_neurips.pkl', 'wb') as f:
                 pickle.dump(zz_points_dict, f)
-            with open('/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/zz_points_dicts/zz_points_tree_dict_rebuttal_28.03.2026.pkl', 'wb') as f:
+            with open('/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/zz_points_dicts/zz_points_tree_dict_neurips.pkl', 'wb') as f:
                 pickle.dump(zz_points_tree_dict, f)
 
         #for llm_model in LLM_MODELS:
@@ -413,121 +349,125 @@ if __name__ == '__main__':
         
         total_cells_predicted = 0
         #total_num_views_neighbour0 = 55 * 5 * 5 * 3 #total number of views X num_runs X num_objects X num_grids
-        for experiment_name in tqdm(sorted(os.listdir(infer_mesh_points_dir)), total=len(os.listdir(infer_mesh_points_dir))):
-            experiment_path = f'{infer_mesh_points_dir}/{experiment_name}'
-            #if 'ortho' in experiment_name:
-            mesh_name = experiment_name.split('__')[0]
+        ## Populate experiments list
+        
+        ## Run cases
+        LLM_NAMES =["google/gemini-3-flash-preview"]#, "qwen/qwen3-vl-235b-a22b-instruct", "~anthropic/claude-haiku-4.5", 'openai/gpt-5.4-mini'] # 'openai/gpt-5-mini', "x-ai/grok-4-fast" "anthropic/claude-sonnet-4.5, x-ai/grok-4-fast, openai/gpt-4.1, openai/gpt-5-mini, "qwen/qwen3-vl-235b-a22b-instruct""
+        GRID_SIZES = [11]
+        NUM_VIEWS = [7] #list(range(1, 11))  # 1 through 10
+        VIEW_TYPES = ["ortho"]#["ortho", "random"]
+        RUNS = [1,2,3,4,5]#list(range(1, 6))        # 1 through 5
+        PROMPT_TYPES = ["geo_max"]#['geo_max', 'geo_mid', 'geo_none']
+        LOAD_CASES = ['compression', 'torsion', 'bending'] # 'torsion', 'bending', 'compression'
+        experiments_name_list = []
+        experiments_tuple_list = []
+        for llm_model in LLM_NAMES:
+            for num_views in NUM_VIEWS:
+                for view_type in VIEW_TYPES:
+                    for prompt_type in PROMPT_TYPES:    
+                        for grid_size in GRID_SIZES:
+                            for run in RUNS:
+                                for load_case in LOAD_CASES:
+                                    #bending_gemini-3-flash-preview_geo_maxprompt_ortho_5views_11grid_1run
+                                    experiment_name = f'{load_case}_{os.path.basename(llm_model)}_{prompt_type}prompt_{view_type}_{num_views}views_{grid_size}grid_{run}run'
+                                    experiments_name_list.append(experiment_name)
+                                    experiments_tuple_list.append((load_case, os.path.basename(llm_model), prompt_type, view_type, num_views, grid_size, run))
+                                    
 
-            if mesh_name in ['00210058', '00200005']: continue  # Skip these meshes due to incomplete data
+        for mesh_name in tqdm(sorted(os.listdir(parent_dir)), total=len(os.listdir(parent_dir))):
             
-            view_type = 'ortho'
-            # else:
-            #     mesh_name = experiment_name.split('__')[0]
-            #     view_type = 'random'
-            
-            #if mesh_name == 'Electrical_Parts_Servos_SG-90_SG90-1-arm-horn': continue  # Skip this mesh due to incomplete data
+            #if mesh_name in ['00210058', '00200005']: continue  # Skip these meshes due to incomplete data
+            for exp_name, exp_tuple in zip(experiments_name_list, experiments_tuple_list):
 
-            num_views_inference = experiment_name.split(f'__nv-')[1].split('__')[0]
-            llm_model = experiment_name.split(f'__LLM-')[1].split('__')[0]
-            grid_size = experiment_name.split(f'__grid-')[1].split('__')[0]
-            view = experiment_name.split(f'__view-')[1].split('__')[0]
-            prompt_type = experiment_name.split(f'__prompt-')[1].split('__')[0]
-            run_num = experiment_name.split(f'__run-')[1].split('__')[0]
-
-            #if llm_model not in LLM_models: continue
-            refinement_points_npy = f'{parent_dir}/{mesh_name}/refinement_points_{view_type}_{num_views_inference}views_{llm_model}_{grid_size}grid_{prompt_type}prompt_{run_num}run.npy'
-            num_refinement_points = np.nan
-            precision, recall, f1 = np.nan, np.nan, np.nan
-            try:
-                refinement_points = np.load(refinement_points_npy)
+                load_case, llm_model, prompt_type, view_type, num_views_inference, grid_size, run_num = exp_tuple
+                #if llm_model not in LLM_models: continue
+                exp_dir = f'{parent_dir}/{mesh_name}/{exp_name}'
+                refinement_points_npy = f'{exp_dir}/refinement_points_final.npy' if os.path.exists(f'{exp_dir}/refinement_points_final.npy') else f'{exp_dir}/refinement_points_prefilt.npy'
+                num_refinement_points = np.nan
+                precision, recall, f1 = np.nan, np.nan, np.nan
+                #try:
+                refinement_points = np.load(refinement_points_npy )
                 num_refinement_points = refinement_points.shape[0]
-            # Compute precision and recall of refinement points with GT zz stress val points
-                precision, recall, f1 = precision_recall_f1(zz_points_dict[mesh_name], refinement_points, r=r_thresh[mesh_name], tree_stress=zz_points_tree_dict[mesh_name])
-            except: pass
-                #print(f'{refinement_points_npy} does not exist')
-                
-            # cells_predicted = parse_responses_and_totals(f'{infer_mesh_points_dir}/{experiment_name}')
-            # num_cells_predicted = cells_predicted['total_cells']
-            # total_cells_predicted += num_cells_predicted
-            # # try:
-            # #     cells_predicted = parse_responses_and_totals(f'{infer_mesh_points_dir}/{infer_mesh_points_exp_name}')
-            # #     num_cells_predicted = cells_predicted['total_cells']
-            # # except: 
-            # #     jobs_to_rerun.append(f'{infer_mesh_points_dir}/{infer_mesh_points_exp_name}')
-            # #     cells_predicted = np.nan
-            # #     num_cells_predicted = np.nan
-            
-            
-            # l2_err_coarse = np.nan
-            # rel_l2_err_coarse = np.nan
-            # energy_err_coarse = np.nan
-            # rel_energy_err_coarse = np.nan
-            # l2_err_refined = np.nan
-            # rel_l2_err_refined = np.nan
-            # energy_err_refined = np.nan
-            # rel_energy_err_refined = np.nan
-            # l2_ref = np.nan
-            # energy_ref = np.nan
+                # Compute precision and recall of refinement points with GT zz stress val points
+                precision, recall, f1, matched_stress, matched_refine, num_stress, num_refine = precision_recall_f1(
+                    zz_points_dict[f'{mesh_name}_{load_case}'], 
+                    refinement_points, 
+                    r=r_thresh[mesh_name], 
+                    tree_stress=zz_points_tree_dict[f'{mesh_name}_{load_case}']
+                )#except: pass
+                    #print(f'{refinement_points_npy} does not exist')
 
-            # coarse_read, refined_read = 0, 0
-            # with open(experiment_path, 'r') as f_exp:
-            #     lines = f_exp.readlines()
-            #     for line in lines:
-            #         ## Want to read a line like this:
-            #         # ortho_4views_gemini-3-flash-preview_10grid_0neighbours_1run_refined.msh: {'L2_err': 1.6607874938378016, 'L2_ref': 2.770242314340069, 'rel_L2': 0.5995098281622474, 'energy_err': 3493979.4591371156, 'energy_ref': 469257.7616347239, 'rel_energy': 7.445757416915935}
-            #         if line.startswith('coarse_mesh'):
-            #             coarse_dict_str = line.split('mesh.msh:')[1].strip()
-            #             coarse_dict = eval(coarse_dict_str)
-            #             l2_err_coarse = coarse_dict['L2_err']
-            #             rel_l2_err_coarse = coarse_dict['rel_L2']
-            #             energy_err_coarse = coarse_dict['energy_err']
-            #             rel_energy_err_coarse = coarse_dict['rel_energy']
-            #             coarse_read = 1
+                # cells_predicted = parse_responses_and_totals(f'{infer_mesh_points_dir}/{experiment_name}')
+                # num_cells_predicted = cells_predicted['total_cells']
+                # total_cells_predicted += num_cells_predicted
+                # # try:
+                # #     cells_predicted = parse_responses_and_totals(f'{infer_mesh_points_dir}/{infer_mesh_points_exp_name}')
+                # #     num_cells_predicted = cells_predicted['total_cells']
+                # # except: 
+                # #     jobs_to_rerun.append(f'{infer_mesh_points_dir}/{infer_mesh_points_exp_name}')
+                # #     cells_predicted = np.nan
+                # #     num_cells_predicted = np.nan
 
-            #         if line.startswith('ortho') or line.startswith('random') and coarse_read==1:
-            #             refined_dict_str = line.split('refined.msh:')[1].strip()
-            #             refined_dict = eval(refined_dict_str)
-            #             l2_err_refined = refined_dict['L2_err']
-            #             rel_l2_err_refined = refined_dict['rel_L2']
-            #             energy_err_refined = refined_dict['energy_err']
-            #             rel_energy_err_refined = refined_dict['rel_energy']
-            #             l2_ref = refined_dict['L2_ref']
-            #             energy_ref = refined_dict['energy_ref']
-            #             refined_read = 1
-                
-            # if coarse_read==0 or refined_read==0:
-            #     #print(f"Incomplete data for experiment: {experiment_name}")
-            #     precision, recall, f1 = np.nan, np.nan, np.nan
-            # print('Examine PRecision, Recall, F1 for experiment: ', experiment_name)            
-            samples.append({
-            'llm_model': llm_model,
-            'mesh_name': mesh_name,
-            'view_type': view_type,
-            'num_views_inference': int(num_views_inference),
-            'llm_model': llm_model,
-            'grid_size': grid_size,
-            'prompt_type': prompt_type,
-            #'num_neighbors': num_neighbors,
-            'run': run_num,
-            #'num_cells_predicted': num_cells_predicted,
-            'num_refinement_points': num_refinement_points,
-            # 'l2_err_refined': l2_err_refined,
-            # 'rel_l2_err_refined': rel_l2_err_refined,
-            # 'energy_err_refined': energy_err_refined,
-            # 'rel_energy_err_refined': rel_energy_err_refined,
-            # 'l2_err_coarse': coarse_dict['L2_err'],
-            # 'rel_l2_err_coarse': coarse_dict['rel_L2'],
-            # 'energy_err_coarse': coarse_dict['energy_err'],
-            # 'rel_energy_err_coarse': coarse_dict['rel_energy'],
-            # 'l2_ref': refined_dict['L2_ref'],
-            # 'energy_ref': refined_dict['energy_ref'],
-            # 'rel_l2_err_normalized_refined': rel_l2_err_refined / coarse_dict['rel_L2'],
-            # 'rel_energy_err_normalized_refined': rel_energy_err_refined / coarse_dict['rel_energy'],
-            # #'CD_normalized': chamfer_dist_normalized
-            'precision':precision,
-            'recall':recall,
-            'F1':f1
-            })
+
+                # l2_err_coarse = np.nan
+                # rel_l2_err_coarse = np.nan
+                # energy_err_coarse = np.nan
+                # rel_energy_err_coarse = np.nan
+                # l2_err_refined = np.nan
+                # rel_l2_err_refined = np.nan
+                # energy_err_refined = np.nan
+                # rel_energy_err_refined = np.nan
+                # l2_ref = np.nan
+                # energy_ref = np.nan
+
+                # coarse_read, refined_read = 0, 0
+                # with open(experiment_path, 'r') as f_exp:
+                #     lines = f_exp.readlines()
+                #     for line in lines:
+                #         ## Want to read a line like this:
+                #         # ortho_4views_gemini-3-flash-preview_10grid_0neighbours_1run_refined.msh: {'L2_err': 1.6607874938378016, 'L2_ref': 2.770242314340069, 'rel_L2': 0.5995098281622474, 'energy_err': 3493979.4591371156, 'energy_ref': 469257.7616347239, 'rel_energy': 7.445757416915935}
+                #         if line.startswith('coarse_mesh'):
+                #             coarse_dict_str = line.split('mesh.msh:')[1].strip()
+                #             coarse_dict = eval(coarse_dict_str)
+                #             l2_err_coarse = coarse_dict['L2_err']
+                #             rel_l2_err_coarse = coarse_dict['rel_L2']
+                #             energy_err_coarse = coarse_dict['energy_err']
+                #             rel_energy_err_coarse = coarse_dict['rel_energy']
+                #             coarse_read = 1
+
+                #         if line.startswith('ortho') or line.startswith('random') and coarse_read==1:
+                #             refined_dict_str = line.split('refined.msh:')[1].strip()
+                #             refined_dict = eval(refined_dict_str)
+                #             l2_err_refined = refined_dict['L2_err']
+                #             rel_l2_err_refined = refined_dict['rel_L2']
+                #             energy_err_refined = refined_dict['energy_err']
+                #             rel_energy_err_refined = refined_dict['rel_energy']
+                #             l2_ref = refined_dict['L2_ref']
+                #             energy_ref = refined_dict['energy_ref']
+                #             refined_read = 1
+
+                # if coarse_read==0 or refined_read==0:
+                #     #print(f"Incomplete data for experiment: {experiment_name}")
+                #     precision, recall, f1 = np.nan, np.nan, np.nan
+                # print('Examine PRecision, Recall, F1 for experiment: ', experiment_name)            
+                samples.append({
+                    'llm_model': llm_model,
+                    'mesh_name': mesh_name,
+                    'view_type': view_type,
+                    'num_views_inference': int(num_views_inference),
+                    'grid_size': grid_size,
+                    'prompt_type': prompt_type,
+                    'run': run_num,
+                    'num_refinement_points': num_refinement_points,
+                    'precision': precision, # Macro metrics per-mesh
+                    'recall': recall,
+                    'F1': f1,
+                    # Raw counts for Micro-averaging
+                    'matched_stress': matched_stress,
+                    'matched_refine': matched_refine,
+                    'num_stress': num_stress,
+                    'num_refine': num_refine 
+                })
             
 
         df = pd.DataFrame(samples)
@@ -535,12 +475,12 @@ if __name__ == '__main__':
         print(f"Saved DataFrame to {df_cache_path}")
     ## Plot average relative L2 error across meshes comparison for ortho and random for increasing number of views and neighbors 0, grid_size 10
     #grid_size = '10'
-    top_num_views = 10
-    prompt_type = 'geo_mid'
+    top_num_views = 7
+    prompt_type = 'geo_max'
     llm_model = 'gemini-3-flash-preview'
     #llm_model = 'grok-4-fast'
     #llm_model = 'qwen3-vl-235b-a22b-instruct'
-    df_filt = df[(df['prompt_type']==prompt_type) & (df['num_views_inference']<=top_num_views) & (df['llm_model']==llm_model)] #& (df['grid_size']==grid_size)]
+    df_filt = df[(df['prompt_type']==prompt_type) & (df['num_views_inference']==top_num_views) & (df['llm_model']==llm_model)] #& (df['grid_size']==grid_size)]
 
     # Mean_L2_norm = plot_aggregated_metric_icml(
     #     df=df_filt,
@@ -611,9 +551,26 @@ if __name__ == '__main__':
     # print(f'{llm_model} Mean_energy_norm: {Mean_energy_norm}')
     # print(f'{llm_model} Mean_L2_norm: {Mean_L2_norm}')
     #print(f'AUC CD norm: {AUC_CD_norm}')
-    print(f'{llm_model}_{prompt_type} Mean_precision: {Mean_precision}')
-    print(f'{llm_model}_{prompt_type} Mean_recall: {Mean_recall}')
-    print(f'{llm_model}_{prompt_type} Mean_F1: {Mean_F1}')
+    total_matched_refine = df_filt['matched_refine'].sum()
+    total_refine_pts = df_filt['num_refine'].sum()
+    
+    total_matched_stress = df_filt['matched_stress'].sum()
+    total_stress_pts = df_filt['num_stress'].sum()
+
+    micro_precision = total_matched_refine / total_refine_pts if total_refine_pts > 0 else 0
+    micro_recall = total_matched_stress / total_stress_pts if total_stress_pts > 0 else 0
+    micro_f1 = (2 * micro_precision * micro_recall) / (micro_precision + micro_recall) if (micro_precision + micro_recall) > 0 else 0
+
+    print(f"\n--- {llm_model} | Prompt: {prompt_type} ---")
+    print("MACRO-AVERAGE (Treats all meshes equally, good for geometry robustness):")
+    print(f"  Mean Precision: {df_filt['precision'].mean():.4f}")
+    print(f"  Mean Recall:    {df_filt['recall'].mean():.4f}")
+    print(f"  Mean F1:        {df_filt['F1'].mean():.4f}")
+
+    print("\nMICRO-AVERAGE (Weighted by volume of points, good for global point-wise accuracy):")
+    print(f"  Micro Precision: {micro_precision:.4f} ({total_matched_refine}/{total_refine_pts} pts)")
+    print(f"  Micro Recall:    {micro_recall:.4f} ({total_matched_stress}/{total_stress_pts} pts)")
+    print(f"  Micro F1:        {micro_f1:.4f}")
 
     print('Lets See')
 
