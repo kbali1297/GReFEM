@@ -22,16 +22,15 @@ val_file_path = "/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReF
 with open(val_file_path, 'r') as fread:
     lines = [line.strip() for line in fread]
 geometry_names =sorted([os.path.basename(line) for line in lines])
-MESHES =[f"{PARENT_DIR}/{geometry_name}/renders_pyvista/{geometry_name}.obj" for geometry_name in geometry_names]
-
+MESHES =[f"{PARENT_DIR}/{geometry_name}/renders_pyvista/{geometry_name}.obj" for geometry_name in geometry_names if geometry_name.startswith('005')]
 #/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/test_meshes_rebuttal/00200037/renders_pyvista_with_meshpoints_ortho_10views_qwen3-vl-235b-a22b-instruct_10grid_geo_maxprompt_3run/view_e0_a120.png
-LLM_NAMES =["google/gemini-3-flash-preview", "qwen/qwen3-vl-235b-a22b-instruct", "~anthropic/claude-haiku-4.5", 'openai/gpt-5.4-mini'] # 'openai/gpt-5-mini', "x-ai/grok-4-fast" "anthropic/claude-sonnet-4.5, x-ai/grok-4-fast, openai/gpt-4.1, openai/gpt-5-mini, "qwen/qwen3-vl-235b-a22b-instruct""
+LLM_NAMES = ["google/gemini-3-flash-preview"]#, "qwen/qwen3-vl-235b-a22b-instruct", "anthropic/claude-haiku-4.5", 'openai/gpt-5.4-mini'] # 'openai/gpt-5-mini', "x-ai/grok-4-fast" "anthropic/claude-sonnet-4.5, x-ai/grok-4-fast, openai/gpt-4.1, openai/gpt-5-mini, "qwen/qwen3-vl-235b-a22b-instruct""
 GRID_SIZES = [11]
 NUM_VIEWS = list(range(1, 11))  # 1 through 10
-VIEW_TYPES = ["ortho"]#["ortho", "random"]
-RUNS = list(range(1, 6))        # 1 through 5
+VIEW_TYPES = ["random"] #["ortho", "random"]
+RUNS = [1] #list(range(1, 6))        # 1 through 5
 PROMPT_TYPES = ["geo_max", 'geo_mid', 'geo_none']
-LOAD_CASES = ['compression', 'torsion', 'bending'] # 'torsion', 'bending', 'compression'
+LOAD_CASES = ['torsion', 'bending', 'compression', 'torsion_compression', 'bending_compression'] # 'torsion', 'bending', 'compression'
 def run_job(args):
     """Executes a single run with the given parameters."""
     llm_name, prompt_type, grid, load_case, num_views, mesh_path, view_type, run = args

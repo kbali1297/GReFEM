@@ -21,7 +21,13 @@ intro_loading['bending'] = (f"A bending displacement load acts  on the object in
 intro_loading['torsion'] = (f"A torsion displacement load acts on the object in the anti-clockwise direction along the x-z plane as indicated by the blue curved arrows about the vertical axis of loading passing through the center of the top surface as indicated by the dashed red line.\n"
 )
 
-intro_loading['shear'] = (f"A shear displacement load acts on the object in the +x  direction as indicated by the blue arrows about the vertical axis indicated via dashed red line.\n")
+intro_loading['bending_compression'] = (f"A bending displacement load acts  on the object in the +y/-y direction on the top surface as indicated by the blue arrows about the horizontal axis indicated via dashed red line. Also a "
+f"compressive load acts on the object in the +/- x direction as shown by the blue arrows\n"
+)
+
+intro_loading['torsion_compression'] = (f"A torsion displacement load acts on the object in the anti-clockwise direction along the x-z plane as indicated by the blue curved arrows about the vertical axis of loading passing through the center of the top surface as indicated by the dashed red line. Also the compressive load acts on the object in the +/- x direction as shown by the blue arrows\n")
+
+#intro_loading['shear'] = (f"A shear displacement load acts on the object in the +x  direction as indicated by the blue arrows about the vertical axis indicated via dashed red line.\n")
 
 additional_info['compression'] = (f"For the top and bottom views, only consider the BH features. All edges or surfaces along the loading direction are not stress critical as they are not perpendicular to the load and do not create stress concentrations. \n"
 f"Neglect the features too far away if the load acts on a narrow part of the top surface passing through the center of the object as they are not stress critical\n"
@@ -31,10 +37,17 @@ additional_info['bending'] = (f"For the top and bottom views, only consider the 
 f"Geometric features ICE, BH, TH too close to the axis about which load is applied are usually not stress critical, in the case of bending loads features away from the axis are more likely to be stress critical.\n"
 )
 
-additional_info['torsion'] = (f"Geometric features ICE, BH, TH too close to the axis about which load is applied are usually not stress critical, in the case of bending loads features away from the axis are more likely to be stress critical.\n")
+additional_info['torsion'] = (f"Geometric features ICE, BH, TH too close to the axis about which load is applied are usually not stress critical, in the case of torsion loads features away from the axis are more likely to be stress critical.\n")
 
-additional_info['shear'] = (f"Geometric Features ICE, BH, TH that are close to the fixed support are highly likely to be stress critical.\n"
+additional_info['bending_compression'] = (f"For each load (bending or compression), only consider the BH features when viewed parallel to the loading direction. All edges or surfaces along the loading direction for each load are not stress critical but perpendicular to the respective loads are. \n"   
+f"Geometric features ICE, BH, TH too close to the axis about which bending load is applied are usually not stress critical, in the case of bending loads features away from the axis are more likely to be stress critical. Consider stress critical areas taking care of both the loads\n"
+)   
+
+additional_info['torsion_compression'] = (f"For the torsion load geometric features ICE, BH, TH too close to the axis about which load is applied are usually not stress critical, in the case of torsion loads features away from the axis are more likely to be stress critical. Also, features along the loading direction of the compressive load are not stress critical as they do not create stress concentrations."
+                                          f"Consider stress critical areas taking care of both the loads.\n"
 )
+# additional_info['shear'] = (f"Geometric Features ICE, BH, TH that are close to the fixed support are highly likely to be stress critical.\n"
+# )
 
 
 loading = ['compression', 'bending', 'torsion', 'shear']
@@ -67,6 +80,7 @@ def get_prompt_1(loading_case, prompt_type, perspective_views, gridded_views):
         f"I.C.E: Internal Corner Edge, E.C/P.C: Extruded Contour/Portruding Contour, T.H: Through Holes, F: Concave Fillet Surfaces or arches\n"
         f"Use the non-gridded {num_perspective_views} 3D views ONLY to understand the overall shape. The grid numbers should be marked only for the corresponding gridded orthographic images.\n"
         f"Base all cell predictions ONLY on what is visible in the corresponding gridded orthographic image.\n"
+        f"For Hollow features mark the boundary cells that contain the hollow feature inside them.\n"
         f"Do NOT guess or infer cells that are not clearly visible in that image.\n\n"
         f"Output format (repeat for each gridded image):\n\n"
         f"***I.C.E: c1, c2, c3 ***\n"
@@ -93,6 +107,7 @@ def get_prompt_1(loading_case, prompt_type, perspective_views, gridded_views):
         f"I.C.E: Internal Corner Edge, E.C/P.C: Extruded Contour/Portruding Contour, T.H: Through Holes, F: Concave Fillet Surfaces or arches\n"
         f"Use the non-gridded {num_perspective_views} 3D views ONLY to understand the overall shape. The grid numbers should be marked only for the corresponding gridded orthographic images.\n"
         f"Base all cell predictions ONLY on what is visible in the corresponding gridded orthographic image.\n"
+        f"For Hollow features mark the boundary cells that contain the hollow feature inside them.\n"
         f"Do NOT guess or infer cells that are not clearly visible in that image.\n\n"
         f"Output format (repeat for each gridded image):\n\n"
         f"***I.C.E: c1, c2, c3 ***\n"
@@ -125,6 +140,8 @@ info_load_filtering['compression'] = f"Stress critical points are likely to occu
 info_load_filtering['bending'] = f"Stress critical points are likely to occur away from the axis of bending (dashed line marked in red) and closer to the outer surface of the geometric feature."
 info_load_filtering['torsion'] = f"Stress critical points are likely to occur away from the axis of torsion (dashed line marked in red) and closer to the outer surface of the geometric feature."
 info_load_filtering['shear'] = f"Stress critical points are likely to occur closer to the bottom fixed support."
+info_load_filtering['bending_compression'] = f"Stress critical points are likely to occur away from the axis of bending (dashed line marked in red) and closer to the outer surface of the geometric feature, as well as across the mid central band of the geometric feature perpendicular to the axis of compression."
+info_load_filtering['torsion_compression'] = f"Stress critical points are likely to occur away from the axis of torsion (dashed line marked in red) and closer to the outer surface of the geometric feature, as well as across the mid central band of the geometric feature perpendicular to the axis of compression."
 
 
 def get_prompt_2(loading_case, prompt_type, perspective_views, gridded_views):

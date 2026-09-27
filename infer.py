@@ -195,7 +195,7 @@ def infer_NN(mesh_file_path, model_chkpt_path, choose_top=3, output_dirpath=None
 
 if __name__ == '__main__':
 
-    test_dir = '/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/test_meshes_7.04.2026'
+    test_dir = './test_meshes'
     flag=0
     for cad_folder in os.listdir(test_dir):
         # if flag==0 and cad_folder!='00200022': 
@@ -203,7 +203,7 @@ if __name__ == '__main__':
         # else: flag=1
         print(f"\nProcessing CAD: {cad_folder}")
         mesh_file_path = os.path.join(test_dir, cad_folder, 'renders_pyvista', f'{cad_folder}.obj')
-        model_chkpt_path = '/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/model_saves_27.04.2026/ep5_val0.0338.pth'
+        model_chkpt_path = './model_saves/ep5_val0.0338.pth'
 
         chosen_views = infer_NN(mesh_file_path, model_chkpt_path, choose_top=10, min_angle_diff=30.0)
         

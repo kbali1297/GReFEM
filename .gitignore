@@ -1,0 +1,82 @@
+# ---------------------------------------------------------------------------
+# GReFEM .gitignore
+# Keep the repo to source code, configs, small result tables and docs.
+# Exclude datasets, checkpoints, vendored binaries, generated meshes/renders,
+# job shards, logs, queues and figures.
+# ---------------------------------------------------------------------------
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# Editors / OS
+.vscode/
+.claude/
+.DS_Store
+
+# Vendored binaries / large third-party trees
+ParaView-*/
+baselines/AMBER/data/
+baselines/AMBER/outputs/
+baselines/AMBER/wandb/
+
+# Datasets / CAD / meshes / renders (kept off-repo; see HuggingFace)
+ABC_CAD_Dataset_*/
+test_meshes*/
+renders_mesh_initial_*/
+*.zip
+*.tar.gz
+*.step
+*.stp
+*.brep
+*.msh
+*.vtk
+*.vtu
+*.xdmf
+*.h5
+*.pos
+
+# Model checkpoints / caches
+model_saves/
+zz_points_dicts/
+*.pt
+*.pth
+*.npy
+*.npz
+
+# Job shards, queues, locks, monitoring outputs
+*_shards/
+*_logs/
+oracle_pilot*/
+amber_pilot*/
+extra_pilot_shards/
+*.lock
+*_queue*.txt
+*_units.txt
+*_units.csv
+*_jobs.txt
+*_pending*.txt
+*.txt.lock
+
+# Logs / terminal output
+*.log
+nohup.out
+
+# Generated figures
+*.png
+*.pdf
+
+# Backups / scratch
+*.bak
+old_files/
+
+# ---------------------------------------------------------------------------
+# Explicitly KEEP small config/result files that would otherwise be ignored
+# ---------------------------------------------------------------------------
+!amber_bounds.json
+!amber_bounds_fine.json
+!amber_train_pool.json
+!cad_element_sizes.json
+!hf_dataset/**

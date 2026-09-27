@@ -15,17 +15,17 @@ import sys
 
 if __name__ == '__main__':
     
-    parent_dir = '/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/test_meshes' 
-    CAD_file_name = '00210058' #'Electrical_Parts_Servos_SG-90_Servo-sg90'
-    load_case = 'bending'
-    num_views = 7
+    parent_dir = '/data/1bali/GReFEM/test_meshes' 
+    CAD_file_name = '00520044'
+    load_case = 'compression'
+    num_views = 6
     prompt_type = 'geo_max'
     grid_size = 11
     run=1
     llm_name = "google/gemini-3-flash-preview" # "google/gemini-flash-latest" --- IGNORE ---
     parser = argparse.ArgumentParser(description="Run multiple experiments to infer orthographic views and identify stress concentration areas using LLM.")
     parser.add_argument('--mesh_path', type=str, default=f'{parent_dir}/{CAD_file_name}/renders_pyvista/{CAD_file_name}.obj')
-    parser.add_argument('--model_ckpt', type=str, default='/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/model_saves_19.01.2026/ortho_view_selector_40.pth')
+    parser.add_argument('--model_ckpt', type=str, default='./model_saves/ortho_view_selector_40.pth')
     parser.add_argument('--prompt_type', type=str, default=prompt_type) # 'geo_max', 'geo_mid', 'geo_none'
     parser.add_argument('--grid_size', type=int, default=grid_size)
     parser.add_argument('--LLM_name', type=str, default=llm_name)
@@ -366,7 +366,7 @@ if __name__ == '__main__':
     if len(np.array(points_3d)) == 0:
         print(f'No points detected for refinement for {os.path.basename(mesh_file_path)} with experiment {experiment_name}')
         exit(0)
-    render_mesh_views(mesh_file_path, output_dir=f'{parent_dir}/{cad_object}/{experiment_name}/meshpoints_prefilt', n_azimuth=[60,300], n_elevation=[36, -36],
+    render_mesh_views(mesh_file_path, output_dir=f'{parent_dir}/{cad_object}/{experiment_name}/meshpoints_prefilt', n_azimuth=[60,300], n_elevation=[-36, 36],
                     orthographic=False, points_3d=points_3d, verbose=True, add_axes=False, opacity=0.7)
 
     ## ---- Filter views based on visibility of detected features ----

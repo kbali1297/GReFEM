@@ -1,0 +1,10 @@
+{
+ "min_sizing_field": 6.665584986180793e-05,
+ "max_sizing_field": 259.88402383049504,
+ "max_mesh_elements": 585307,
+ "n_meshes": 1000,
+ "raw_min": 8.331981232725991e-05,
+ "raw_max": 207.90721906439603,
+ "max_expert_elements": 390205,
+ "median_expert_elements": 87360
+}

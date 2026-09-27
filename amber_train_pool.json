@@ -1,0 +1,592 @@
+{
+"00060084": {
+"src": "test_meshes_extra",
+"oracle": [],
+"pos": [
+"bending",
+"compression",
+"torsion"
+]
+},
+"00080004": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00170001": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00330087": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00440057": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00490020": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00560059": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00600070": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00660074": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00670036": {
+"src": "test_meshes_extra",
+"oracle": [],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00700000": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00710070": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00790049": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00810091": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00840037": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00840064": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00850057": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00860093": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00870013": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00880056": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00880080": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00910046": {
+"src": "test_meshes_extra",
+"oracle": [],
+"pos": [
+"bending",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00940074": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00950078": {
+"src": "test_meshes_extra",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00200005": {
+"src": "test_meshes",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00200069": {
+"src": "test_meshes",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00200090": {
+"src": "test_meshes",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00210021": {
+"src": "test_meshes",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00210076": {
+"src": "test_meshes",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00220071": {
+"src": "test_meshes",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00520017": {
+"src": "test_meshes",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00530079": {
+"src": "test_meshes",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"00550014": {
+"src": "test_meshes",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"Electrical_Parts_Servos_SG-90_SG90-1-arm-horn": {
+"src": "test_meshes",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"Electrical_Parts_Servos_SG-90_SG90-4-arms-horn": {
+"src": "test_meshes",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+},
+"Mechanical_Parts_Mountings_SC8UU_SC8UU": {
+"src": "test_meshes",
+"oracle": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+],
+"pos": [
+"bending",
+"compression",
+"torsion",
+"bending_compression",
+"torsion_compression"
+]
+}
+}

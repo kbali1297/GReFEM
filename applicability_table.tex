@@ -1,0 +1,16 @@
+\begin{tabular}{l l l l c c c}
+\toprule
+Method & Venue & Domain & Supervision & Solver in loop & Public code & Applicable here \\
+\midrule
+Uniform refinement & classical & 2D/3D & none & no & n/a & yes \\
+ZZ/SPR error-indicator AMR & Zienkiewicz \& Zhu 1992 & 2D/3D & none & yes (per part) & n/a & yes \\
+Curvature/feature sizing heuristic & classical (gmsh) & 2D/3D & none & no & yes & yes \\
+MeshingNet3D & Adv. Eng. Softw. 2021 & 3D & expert error fields & yes (training data) & no & reimplementation only \\
+GraphMesh & ICCS 2024 & 2D & expert sizing fields & yes (training data) & no & no \\
+ASMR / ASMR++ & NeurIPS 2023 / ML 2026 & 2D & RL reward & yes (every training step) & yes & no \\
+RL-AMR (Yang'23, VDGN, Foucart'23) & AISTATS/AAMAS/JCP 2023 & 2D & RL reward & yes (every training step) & partial & no \\
+MeshDQN & AIP Advances 2023 & 2D & RL reward (drag/lift) & yes & yes & no \\
+AMBER & NeurIPS 2025 & 2D/3D & adaptive expert meshes & yes (training labels) & yes & yes (retrained here) \\
+GReFEM (ours) & - & 3D & none (zero-shot MLLM) & no & yes & yes \\
+\bottomrule
+\end{tabular}

@@ -73,59 +73,66 @@ def compute_mesh_sizes_from_geometry(gmsh_model, scale_factor=1/120, refine_rati
 # ============================================================
 
 def return_zz_field(input_tet3D_mesh, uh, output_file=None):
+    # --- Handle loading from file if uh is a path string ---
     if isinstance(uh, str):
         u_xdmf_path = uh
         with io.XDMFFile(MPI.COMM_SELF, u_xdmf_path, "r") as xdmf:
-            mesh = xdmf.read_mesh(name="mesh")
-        gdim = mesh.geometry.dim
-        V = fem.VectorFunctionSpace(mesh, ("CG", 1))
+            msh = xdmf.read_mesh(name="mesh")
+        gdim = msh.geometry.dim
+        # Define Space: family, degree, shape
+        V = fem.functionspace(msh, ("CG", 1, (gdim,)))
         uh = fem.Function(V)
         h5_path = u_xdmf_path.replace(".xdmf", ".h5")
         with h5py.File(h5_path, "r") as h5:
             uh.x.array[:] = h5["/Function/u/0"][:].reshape(-1)
     else:
-        mesh = uh.function_space.mesh
+        msh = uh.function_space.mesh
+        gdim = msh.geometry.dim
 
     stress_expr = sigma(uh)
     dirname = os.path.dirname(input_tet3D_mesh)
     basename = os.path.basename(input_tet3D_mesh).replace('.msh', '')
 
-    gdim = mesh.geometry.dim
-    TensorDG0 = ufl.TensorElement("DG", mesh.ufl_cell(), 0, shape=(gdim, gdim))
-    W_DG0 = fem.FunctionSpace(mesh, TensorDG0)
+    # --- 1. Project stress to DG0 (Discontinuous Galerkin at centroids) ---
+    # NEW API: Define space directly with (family, degree, (shape))
+    W_DG0 = fem.functionspace(msh, ("DG", 0, (gdim, gdim)))
     vT = ufl.TestFunction(W_DG0)
     uT = ufl.TrialFunction(W_DG0)
-    σh = fem.petsc.LinearProblem(
-        ufl.inner(uT, vT) * ufl.dx,
-        ufl.inner(stress_expr, vT) * ufl.dx
-    ).solve()
+    
+    # Solve projection: σh is the discontinuous stress field
+    prob1 = fem.petsc.LinearProblem(ufl.inner(uT, vT) * ufl.dx, ufl.inner(stress_expr, vT) * ufl.dx)
+    σh = prob1.solve()
 
-    TensorCG1 = ufl.TensorElement("CG", mesh.ufl_cell(), 1, shape=(gdim, gdim))
-    W_CG1 = fem.FunctionSpace(mesh, TensorCG1)
+    # --- 2. Smooth stress to CG1 (Continuous Galerkin at nodes) ---
+    # This is the "Recovery" step of ZZ
+    W_CG1 = fem.functionspace(msh, ("CG", 1, (gdim, gdim)))
     vS = ufl.TestFunction(W_CG1)
     uS = ufl.TrialFunction(W_CG1)
-    σstar = fem.petsc.LinearProblem(
-        ufl.inner(uS, vS) * ufl.dx,
-        ufl.inner(σh, vS) * ufl.dx
-    ).solve()
+    
+    prob2 = fem.petsc.LinearProblem(ufl.inner(uS, vS) * ufl.dx, ufl.inner(σh, vS) * ufl.dx)
+    σstar = prob2.solve()
 
+    # --- 3. Compute error indicator ||σ* - σh|| ---
     diff_expr = ufl.sqrt(ufl.inner(σstar - σh, σstar - σh))
-    W0 = fem.FunctionSpace(mesh, ("DG", 0))
+    W0 = fem.functionspace(msh, ("DG", 0))
     v0 = ufl.TestFunction(W0)
     u0 = ufl.TrialFunction(W0)
-    zz_stress = fem.petsc.LinearProblem(
-        ufl.inner(u0, v0) * ufl.dx,
-        ufl.inner(diff_expr, v0) * ufl.dx
-    ).solve()
+    
+    prob3 = fem.petsc.LinearProblem(ufl.inner(u0, v0) * ufl.dx, ufl.inner(diff_expr, v0) * ufl.dx)
+    zz_stress = prob3.solve()
 
+    # --- 4. Extract data for .pos file ---
     cell_vals_zz_stress_mag = np.array(zz_stress.x.array, copy=True)
-    cells_to_nodes = return_cells_to_nodes(mesh)
-    geox = np.array(mesh.geometry.x)
+    cells_to_nodes = return_cells_to_nodes(msh)
+    geox = np.array(msh.geometry.x)
+    
+    # Calculate centroids for the .pos markers
     centroids = np.array([geox[np.asarray(nodes, dtype=int)].mean(axis=0)
                           for nodes in cells_to_nodes])
 
     pos_file = output_file or f"{dirname}/{basename}_zz.pos"
     write_pos_file(pos_file, centroids, cell_vals_zz_stress_mag)
+    
     return pos_file
 
 
@@ -263,6 +270,10 @@ def _setup_mesh(input_msh):
     meshio.write(input_msh, m, file_format="gmsh22")
     msh, _, _ = io.gmshio.read_from_msh(input_msh, MPI.COMM_SELF, rank=0, gdim=3)
     msh.topology.create_connectivity(msh.topology.dim, msh.topology.dim - 1)
+    # facet->cell connectivity: required by exterior_facet_indices; volume-only
+    # meshes (e.g. AMBER outputs without boundary triangles) don't get it
+    # implicitly during read_from_msh.
+    msh.topology.create_connectivity(msh.topology.dim - 1, msh.topology.dim)
     print(f"Mesh: {msh.geometry.x.shape[0]} nodes, "
           f"{msh.topology.index_map(msh.topology.dim).size_local} cells")
     return msh, filesave_path
@@ -291,8 +302,8 @@ def _solve_and_write(msh, V, bcs, filesave_path):
     problem = petsc.LinearProblem(a, L, bcs=bcs)
     uh = problem.solve()
 
-    Tensor = ufl.TensorElement("DG", msh.ufl_cell(), 0)
-    Wt = fem.FunctionSpace(msh, Tensor)
+    dim = msh.topology.dim
+    Wt = fem.functionspace(msh, ("DG", 0, (dim, dim)))
 
     def project_tensor(expr):
         a_p = ufl.inner(ufl.TrialFunction(Wt), ufl.TestFunction(Wt)) * ufl.dx
@@ -332,7 +343,7 @@ def _solve_and_write(msh, V, bcs, filesave_path):
 
 def run_fenics_compression(input_msh, disp_frac=0.01, E=2e11, nu=0.3):
     msh, filesave_path = _setup_mesh(input_msh)
-    V = fem.VectorFunctionSpace(msh, ("CG", 1))
+    V = fem.functionspace(msh, ("CG", 1, (msh.geometry.dim,)))
 
     geom = msh.geometry.x
     y_min, y_max = float(geom[:, 1].min()), float(geom[:, 1].max())
@@ -384,7 +395,7 @@ def run_fenics_bending(input_msh, disp_frac=0.01, bend_axis=0, E=2e11, nu=0.3):
                               naturally curve and translate.
     """
     msh, filesave_path = _setup_mesh(input_msh)
-    V = fem.VectorFunctionSpace(msh, ("CG", 1))
+    V = fem.functionspace(msh, ("CG", 1, (msh.geometry.dim,)))
 
     geom = msh.geometry.x
     y_min, y_max = float(geom[:, 1].min()), float(geom[:, 1].max())
@@ -462,7 +473,7 @@ def run_fenics_torsion(input_msh, twist_angle_deg=1.0, E=2e11, nu=0.3):
                               can naturally warp out-of-plane (St. Venant torsion).
     """
     msh, filesave_path = _setup_mesh(input_msh)
-    V = fem.VectorFunctionSpace(msh, ("CG", 1))
+    V = fem.functionspace(msh, ("CG", 1, (msh.geometry.dim,)))
 
     geom = msh.geometry.x
     y_min, y_max = float(geom[:, 1].min()), float(geom[:, 1].max())
@@ -556,7 +567,7 @@ def run_fenics_shear(input_msh, disp_frac=0.01, E=2e11, nu=0.3):
     concentrations at both the fixed root and the loaded tip.
     """
     msh, filesave_path = _setup_mesh(input_msh)
-    V = fem.VectorFunctionSpace(msh, ("CG", 1))
+    V = fem.functionspace(msh, ("CG", 1, (msh.geometry.dim,)))
 
     geom = msh.geometry.x
     y_min, y_max = float(geom[:, 1].min()), float(geom[:, 1].max())
@@ -595,6 +606,195 @@ def run_fenics_shear(input_msh, disp_frac=0.01, E=2e11, nu=0.3):
         V_shear)
 
     bcs = [bc_fixed, bc_tip]
+    u_xdmf, stress_xdmf, strain_xdmf, uh = _solve_and_write(msh, V, bcs, filesave_path)
+    return u_xdmf, stress_xdmf, strain_xdmf, bcs, uh
+
+# ============================================================
+# LOAD CASE 5 — Bending + Compression
+# ============================================================
+
+def run_fenics_bending_compression(input_msh, disp_frac=0.01, E=2e11, nu=0.3):
+    """
+    Combined Load: 
+      - Fixed Support (-X face)
+      - Compression (-X direction) on the (+X face)
+      - Bending (Y displacement profile) on the (+Y face)
+    """
+    msh, filesave_path = _setup_mesh(input_msh)
+    V = fem.functionspace(msh, ("CG", 1, (msh.geometry.dim,)))
+
+    geom = msh.geometry.x
+    x_min, x_max = float(geom[:, 0].min()), float(geom[:, 0].max())
+    y_min, y_max = float(geom[:, 1].min()), float(geom[:, 1].max())
+    tol_x = 0.02 * (x_max - x_min)
+    tol_y = 0.02 * (y_max - y_min)
+
+    facet_normals = compute_normals(msh)
+
+    # 1. Detect required faces
+    top_facets, left_facets, right_facets = [], [],[]
+    
+    # Find +Y (Top face)
+    cos_thresh = 0.9
+    for _ in range(10):
+        tf, _ = detect_top_bottom_facets(msh, facet_normals, y_min, y_max, cos_thresh, tol_y)
+        if len(tf) >= 3:
+            top_facets = tf
+            break
+        cos_thresh -= 0.05
+
+    # Find -X (Left) and +X (Right) faces
+    cos_thresh = 0.9
+    for _ in range(10):
+        lf, rf = detect_left_right_facets(msh, facet_normals, x_min, x_max, cos_thresh, tol_x)
+        if len(lf) >= 3 and len(rf) >= 3:
+            left_facets = lf
+            right_facets = rf
+            break
+        cos_thresh -= 0.05
+
+    if len(top_facets) == 0 or len(left_facets) == 0 or len(right_facets) == 0:
+        print("Could not detect necessary facets (+Y, -X, +X) for bending_compression. Aborting.")
+        return None, None, None, None, None
+
+    # --- BC 1: Clamp left face (-X face, all DOFs = 0) ---
+    bc_fixed = fem.dirichletbc(
+        np.zeros(3, dtype=np.float64),
+        fem.locate_dofs_topological(V, msh.topology.dim - 1, left_facets), V)
+
+    # --- BC 2: Compression on right face (+X face pushing in -X direction) ---
+    V_x = V.sub(0)
+    comp_disp = -disp_frac * (x_max - x_min)
+    bc_comp = fem.dirichletbc(
+        np.array(comp_disp, dtype=np.float64),
+        fem.locate_dofs_topological(V_x, msh.topology.dim - 1, right_facets), V_x)
+
+    # --- BC 3: Bending on top face (+Y face) ---
+    fdim = msh.topology.dim - 1
+    msh.topology.create_connectivity(fdim, 0)
+    conn = msh.topology.connectivity(fdim, 0)
+    
+    # Find centroid of top face to pivot the bending
+    loaded_nodes = set()
+    for f in top_facets:
+        for n in conn.links(f):
+            loaded_nodes.add(int(n))
+    cx = float(geom[list(loaded_nodes), 0].mean())
+
+    V_y = V.sub(1)
+    Q_y, _ = V_y.collapse()
+    u_bend = fem.Function(Q_y)
+
+    def bend_profile(x):
+        return (x[0] - cx) * disp_frac
+
+    u_bend.interpolate(bend_profile)
+    dof_indices_y = fem.locate_dofs_topological((V_y, Q_y), fdim, top_facets)
+    bc_bend = fem.dirichletbc(u_bend, dof_indices_y, V_y)
+
+    bcs = [bc_fixed, bc_comp, bc_bend]
+    u_xdmf, stress_xdmf, strain_xdmf, uh = _solve_and_write(msh, V, bcs, filesave_path)
+    return u_xdmf, stress_xdmf, strain_xdmf, bcs, uh
+
+
+# ============================================================
+# LOAD CASE 6 — Torsion + Compression
+# ============================================================
+
+def run_fenics_torsion_compression(input_msh, twist_angle_deg=1.0, disp_frac=0.01, E=2e11, nu=0.3):
+    """
+    Combined Load: 
+      - Fixed Support (-X face)
+      - Compression (-X direction) on the (+X face)
+      - Torsion (Twist around Y axis) on the (+Y face)
+    """
+    msh, filesave_path = _setup_mesh(input_msh)
+    V = fem.functionspace(msh, ("CG", 1, (msh.geometry.dim,)))
+
+    geom = msh.geometry.x
+    x_min, x_max = float(geom[:, 0].min()), float(geom[:, 0].max())
+    y_min, y_max = float(geom[:, 1].min()), float(geom[:, 1].max())
+    tol_x = 0.02 * (x_max - x_min)
+    tol_y = 0.02 * (y_max - y_min)
+
+    facet_normals = compute_normals(msh)
+
+    # 1. Detect required faces
+    top_facets, left_facets, right_facets = [], [],[]
+    
+    cos_thresh = 0.9
+    for _ in range(10):
+        tf, _ = detect_top_bottom_facets(msh, facet_normals, y_min, y_max, cos_thresh, tol_y)
+        if len(tf) >= 3:
+            top_facets = tf
+            break
+        cos_thresh -= 0.05
+
+    cos_thresh = 0.9
+    for _ in range(10):
+        lf, rf = detect_left_right_facets(msh, facet_normals, x_min, x_max, cos_thresh, tol_x)
+        if len(lf) >= 3 and len(rf) >= 3:
+            left_facets = lf
+            right_facets = rf
+            break
+        cos_thresh -= 0.05
+
+    if len(top_facets) == 0 or len(left_facets) == 0 or len(right_facets) == 0:
+        print("Could not detect necessary facets (+Y, -X, +X) for torsion_compression. Aborting.")
+        return None, None, None, None, None
+
+    # --- BC 1: Clamp left face (-X face) ---
+    bc_fixed = fem.dirichletbc(
+        np.zeros(3, dtype=np.float64),
+        fem.locate_dofs_topological(V, msh.topology.dim - 1, left_facets), V)
+
+    # --- BC 2: Compression on right face (+X face pushing in -X direction) ---
+    V_x = V.sub(0)
+    comp_disp = -disp_frac * (x_max - x_min)
+    bc_comp = fem.dirichletbc(
+        np.array(comp_disp, dtype=np.float64),
+        fem.locate_dofs_topological(V_x, msh.topology.dim - 1, right_facets), V_x)
+
+    # --- BC 3: Torsion on top face (+Y face) ---
+    fdim = msh.topology.dim - 1
+    msh.topology.create_connectivity(fdim, 0)
+    conn = msh.topology.connectivity(fdim, 0)
+    
+    loaded_nodes = set()
+    for f in top_facets:
+        for n in conn.links(f):
+            loaded_nodes.add(int(n))
+    loaded_nodes = list(loaded_nodes)
+    
+    cx = float(geom[loaded_nodes, 0].mean())
+    cz = float(geom[loaded_nodes, 2].mean())
+
+    theta = np.deg2rad(twist_angle_deg)
+    
+    V_z = V.sub(2)
+    Q_x, _ = V_x.collapse()
+    Q_z, _ = V_z.collapse()
+    
+    u_twist_x = fem.Function(Q_x)
+    u_twist_z = fem.Function(Q_z)
+
+    def twist_profile_x(x):
+        return theta * (x[2] - cz)
+        
+    def twist_profile_z(x):
+        return -theta * (x[0] - cx)
+
+    u_twist_x.interpolate(twist_profile_x)
+    u_twist_z.interpolate(twist_profile_z)
+
+    dof_indices_x_top = fem.locate_dofs_topological((V_x, Q_x), fdim, top_facets)
+    dof_indices_z_top = fem.locate_dofs_topological((V_z, Q_z), fdim, top_facets)
+    
+    bc_tip_x = fem.dirichletbc(u_twist_x, dof_indices_x_top, V_x)
+    bc_tip_z = fem.dirichletbc(u_twist_z, dof_indices_z_top, V_z)
+
+    bcs =[bc_fixed, bc_comp, bc_tip_x, bc_tip_z]
+
     u_xdmf, stress_xdmf, strain_xdmf, uh = _solve_and_write(msh, V, bcs, filesave_path)
     return u_xdmf, stress_xdmf, strain_xdmf, bcs, uh
 
@@ -685,8 +885,8 @@ def load_solution(xdmf_path, mesh_xdmf_path=None):
 # ParaView interpolation
 # ============================================================
 
-PV = "/data/1bali/Other_LLM_projects/multi_view_3DQA/ParaView-5.12.0-MPI-Linux-Python3.10-x86_64/bin/pvpython"
-PV_SCRIPT = "/data/1bali/Other_LLM_projects/multi_view_3DQA/paraview_compare.py"
+PV = "./ParaView-5.12.0-MPI-Linux-Python3.10-x86_64/bin/pvpython"
+PV_SCRIPT = "./paraview_compare.py"
 
 
 def interpolate_to_ref_mesh_paraview(src, dst, experiment_name=None):
@@ -742,16 +942,152 @@ def compute_disp_errors_on_ref(ref_xdmf, cand_xdmf, E=210e9, nu=0.3,
 
 
 # ============================================================
+# Interpolation-free scalar QoI errors (rebuttal tables)
+# ============================================================
+
+import re as _re
+
+
+def read_pos_points_top(pos_file, top_percentile=99.9, load_case=None,
+                        remove_boundary_frac=0.02):
+    """Read SP points from a gmsh .pos file, keep top percentile by value.
+
+    If load_case is given, boundary/load singularities are trimmed first
+    using the same convention as results_analysis_rebuttal.read_pos_points
+    (drop points within remove_boundary_frac of the bbox extremes along
+    the loading axes) before the percentile cut.
+    Returns (points (M,3), values (M,))."""
+    pattern = _re.compile(r"SP\(([^,]+),([^,]+),([^)]+)\)\{([^}]+)\};")
+    points, values = [], []
+    with open(pos_file, "r") as f:
+        for line in f:
+            m = pattern.search(line)
+            if m:
+                x, y, z, val = map(float, m.groups())
+                points.append([x, y, z])
+                values.append(val)
+    points, values = np.asarray(points), np.asarray(values)
+    if len(values) == 0:
+        return np.empty((0, 3)), np.empty((0,))
+    if load_case is not None:
+        x_min, x_max = points[:, 0].min(), points[:, 0].max()
+        y_min, y_max = points[:, 1].min(), points[:, 1].max()
+        x_dist = (x_max - x_min) * remove_boundary_frac
+        y_dist = (y_max - y_min) * remove_boundary_frac
+        mask = np.ones(len(points), dtype=bool)
+        if load_case in ("compression", "bending", "torsion", "shear"):
+            mask &= (points[:, 1] < y_max - y_dist) & (points[:, 1] > y_min + y_dist)
+        elif load_case in ("bending_compression", "torsion_compression"):
+            mask &= (points[:, 0] < x_max - x_dist) & (points[:, 0] > x_min + x_dist)
+            mask &= points[:, 1] < y_max - y_dist
+        points, values = points[mask], values[mask]
+        if len(values) == 0:
+            return np.empty((0, 3)), np.empty((0,))
+    cutoff = np.percentile(values, top_percentile)
+    mask = values >= cutoff
+    return points[mask], values[mask]
+
+
+def compute_qoi_scalars(sol_xdmf, E=210e9, nu=0.3,
+                        crit_points=None, crit_radius=None):
+    """Interpolation-free scalar QoIs evaluated natively on the mesh of
+    `sol_xdmf` (a *_sol.xdmf displacement solution).
+
+    Since u is CG1, eps/sigma are exactly constant per cell, so the
+    cell-wise von Mises and energy density values are exact (no
+    projection/interpolation error). Omega_crit = cells whose centroid
+    lies within crit_radius of any crit_point (e.g. top-percentile ZZ
+    points of the fine reference).
+
+    Returns dict with: n_dofs, n_cells, energy_total, energy_crit,
+    vm_p99_crit, vm_max_crit, max_disp, n_crit_cells.
+    """
+    from scipy.spatial import cKDTree
+
+    msh, V, u = load_solution(sol_xdmf)
+    tdim = msh.topology.dim
+    n_dofs = V.dofmap.index_map.size_local * V.dofmap.index_map_bs
+    n_cells = msh.topology.index_map(tdim).size_local
+
+    mu = E / (2.0 * (1.0 + nu))
+    lmbda = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
+    e = eps(u)
+    s = 2.0 * mu * e + lmbda * ufl.tr(e) * ufl.Identity(3)
+    psi = 0.5 * ufl.inner(s, e)                      # strain energy density
+    dev = s - (ufl.tr(s) / 3.0) * ufl.Identity(3)
+    vm = ufl.sqrt(1.5 * ufl.inner(dev, dev) + 1e-30)  # von Mises
+
+    # cell-wise exact values via DG0 assembly (integrand constant per cell)
+    W0 = fem.functionspace(msh, ("DG", 0))
+    v0 = ufl.TestFunction(W0)
+    cell_vols = fem.assemble_vector(fem.form(v0 * ufl.dx)).array.copy()
+    psi_cell = fem.assemble_vector(fem.form(psi * v0 * ufl.dx)).array / cell_vols
+    vm_cell = fem.assemble_vector(fem.form(vm * v0 * ufl.dx)).array / cell_vols
+
+    energy_total = float(psi_cell @ cell_vols)
+    max_disp = float(np.linalg.norm(
+        u.x.array.reshape(-1, msh.geometry.dim), axis=1).max())
+
+    res = {
+        "n_dofs": int(n_dofs), "n_cells": int(n_cells),
+        "energy_total": energy_total, "max_disp": max_disp,
+        "volume_total": float(cell_vols.sum()),
+        "energy_crit": float("nan"), "vm_p99_crit": float("nan"),
+        "vm_max_crit": float("nan"), "n_crit_cells": 0,
+    }
+
+    if crit_points is not None and len(crit_points) > 0 and crit_radius:
+        centroids = msh.geometry.x[msh.geometry.dofmap].mean(axis=1)
+        d, _ = cKDTree(np.asarray(crit_points, float)).query(centroids)
+        crit = d <= crit_radius
+        n_crit = int(crit.sum())
+        res["n_crit_cells"] = n_crit
+        if n_crit > 0:
+            res["energy_crit"] = float(psi_cell[crit] @ cell_vols[crit])
+            res["vm_p99_crit"] = float(np.percentile(vm_cell[crit], 99))
+            res["vm_max_crit"] = float(vm_cell[crit].max())
+
+    return res
+
+
+# ============================================================
 # Top-level dispatcher
 # ============================================================
 
 _SOLVERS = {
-    "compression": run_fenics_compression,
-    "bending":     run_fenics_bending,
-    "torsion":     run_fenics_torsion,
-    "shear":       run_fenics_shear,       # <--- ADD THIS LINE
+    "compression":         run_fenics_compression,
+    "bending":             run_fenics_bending,
+    "torsion":             run_fenics_torsion,
+    "shear":               run_fenics_shear,
+    "bending_compression": run_fenics_bending_compression,
+    "torsion_compression": run_fenics_torsion_compression,
 }
 
+def detect_left_right_facets(msh, facet_normals, x_min, x_max, cos_thresh=0.3, tol=1e-3):
+    """Detect facets whose outward normal is ±x (used for fixed supports and X-compression)."""
+    from dolfinx import mesh as dmesh_mod
+    fdim = msh.topology.dim - 1
+    msh.topology.create_connectivity(fdim, 0)
+    conn = msh.topology.connectivity(fdim, 0)
+    coords = msh.geometry.x
+    
+    boundary_facets = dmesh_mod.exterior_facet_indices(msh.topology)
+    left_facets, right_facets = [],[]
+    
+    for f in boundary_facets:
+        verts = conn.links(f)
+        x_verts = coords[verts, 0]
+        n_x = np.abs(facet_normals[f, 0])
+        
+        if n_x >= cos_thresh:
+            if np.all(np.abs(x_verts - x_min) < tol):
+                left_facets.append(f)
+            elif np.all(np.abs(x_verts - x_max) < tol):
+                right_facets.append(f)
+                
+    print(f"[detect_left_right_facets] Boundary: {len(boundary_facets)} "
+          f"| left (-x): {len(left_facets)} | right (+x): {len(right_facets)}")
+    return np.array(left_facets, dtype=np.int32), np.array(right_facets, dtype=np.int32)
 
 def compute_disp_error(candidate_mshs, ref_msh,
                        outfile="results_fenics.log",
@@ -787,6 +1123,7 @@ def compute_disp_error(candidate_mshs, ref_msh,
             with open(outfile, "a") as fout:
                 fout.write(f"[{load_case}] {msh_path.split('/')[-1]}: {res_suffix}\n")
 
+        print(res_suffix)
         res_cand[suffix] = res_suffix
 
     return solved_uh, res_cand

@@ -135,7 +135,7 @@ def render_mesh_views(mesh_file, output_dir="renders_pyvista_mesh_initial", n_az
                 plotter.add_points(
                     points_3d,
                     color="red",
-                    point_size=15,
+                    point_size=10,
                     render_points_as_spheres=True,
                 )
             # # --- Wireframe overlay (for clear mesh edges) ---
@@ -226,6 +226,120 @@ def read_pos_file(path):
                 values.append(val)
     return np.array(coords), np.array(values)
 
+def _get_filtered_ground_truth_points(pos_file, loading_case, top_percentile=99.9, remove_boundary_frac=0.02):
+    """
+    Reuses your logic to extract the high-percentile interior points.
+    """
+    pattern = re.compile(r"SP\(([^,]+),([^,]+),([^)]+)\)\{([^}]+)\};")
+    points, values = [], []
+    x_max, x_min, y_max, y_min = -np.inf, np.inf, -np.inf, np.inf
+
+    with open(pos_file, "r") as f:
+        for line in f:
+            match = pattern.search(line)
+            if match:
+                x, y, z, val = map(float, match.groups())
+                points.append([x, y, z])
+                values.append(val)
+                x_max, x_min = max(x_max, x), min(x_min, x)
+                y_max, y_min = max(y_max, y), min(y_min, y)
+
+    all_points = np.asarray(points)
+    all_values = np.asarray(values)
+
+    x_dist = (x_max - x_min) * remove_boundary_frac
+    y_dist = (y_max - y_min) * remove_boundary_frac
+    
+    interior_mask = np.ones(len(all_points), dtype=bool)
+    if loading_case in ["compression", "bending", "torsion", "shear"]:
+        interior_mask &= (all_points[:, 1] < (y_max - y_dist)) & (all_points[:, 1] > (y_min + y_dist))
+    elif loading_case in ["bending_compression", "torsion_compression"]:
+        interior_mask &= (all_points[:, 0] < (x_max - x_dist)) & (all_points[:, 0] > (x_min + x_dist))
+        interior_mask &= (all_points[:, 1] < (y_max - y_dist))
+    
+    interior_values = all_values[interior_mask]
+    if len(interior_values) == 0: return np.empty((0, 3))
+        
+    cutoff = np.percentile(interior_values, top_percentile)
+    return all_points[interior_mask & (all_values >= cutoff)]
+
+def render_mesh_with_ground_truth(mesh_file, pos_file, loading_case, output_dir, n_azimuth=12, n_elevation=3, opacity=0.7, top_percentile=99.9):
+    """
+    Renders a semi-transparent mesh with Ground Truth stress points highlighted in green.
+    """
+    # 1. Get the filtered Green Points
+    green_points = _get_filtered_ground_truth_points(pos_file, loading_case, top_percentile=top_percentile)
+    
+    # 2. Setup output and Mesh
+    os.makedirs(output_dir, exist_ok=True)
+    mesh = pv.read(mesh_file)
+    mesh_clean = mesh.clean(tolerance=1e-6).merge_points().compute_normals(split_vertices=False)
+
+    # Extract feature edges (the black "skeleton")
+    feat_edges = mesh_clean.extract_feature_edges(feature_angle=30)
+    
+    # Camera constants
+    bounds = mesh.bounds
+    center = np.array([(bounds[0]+bounds[1])/2, (bounds[2]+bounds[3])/2, (bounds[4]+bounds[5])/2])
+    radius = np.linalg.norm([bounds[1]-bounds[0], bounds[3]-bounds[2], bounds[5]-bounds[4]])/2 * 4.0
+    edge_radius = radius * 0.001
+
+    pv.start_xvfb()
+
+    elevations = n_elevation if isinstance(n_elevation, list) else [-90 + (180 /(n_elevation+1)) * e for e in range(1, n_elevation+1)]
+    azimuths = n_azimuth if isinstance(n_azimuth, list) else [(360 / n_azimuth) * a for a in range(n_azimuth)]
+
+    for elevation in elevations:
+        for azimuth in azimuths:
+            # Camera Position
+            cam_x = center[0] + radius * np.cos(np.radians(elevation)) * np.sin(np.radians(azimuth))
+            cam_y = center[1] + radius * np.sin(np.radians(elevation))
+            cam_z = center[2] + radius * np.cos(np.radians(elevation)) * np.cos(np.radians(azimuth))
+
+            plotter = pv.Plotter(off_screen=True, window_size=[1000, 1000])
+            plotter.set_background("white")
+
+            # --- 1. The Semi-Transparent Mesh ---
+            plotter.add_mesh(
+                mesh_clean,
+                color="#cccccc",
+                opacity=opacity,
+                smooth_shading=True,
+                lighting=True,
+                ambient=0.3
+            )
+
+            # --- 2. The Feature Edges (Skeleton) ---
+            if feat_edges.n_points > 0:
+                plotter.add_mesh(
+                    feat_edges.tube(radius=edge_radius),
+                    color="black",
+                    opacity=opacity, # Match mesh transparency
+                    lighting=False
+                )
+
+            # --- 3. The Green Ground Truth Points ---
+            if len(green_points) > 0:
+                plotter.add_points(
+                    pv.PolyData(green_points),
+                    color="blue", # Pure Green
+                    point_size=10,
+                    render_points_as_spheres=True,
+                    lighting=True
+                )
+
+            # Up-vector logic
+            up_vector = (0, 0, -1) if abs(elevation) == 90 else (0, 1, 0)
+            plotter.camera_position = [(cam_x, cam_y, cam_z), center, up_vector]
+
+            filename = os.path.join(output_dir, f"view_e{elevation:.0f}_a{azimuth:.0f}.png")
+            plotter.screenshot(filename)
+            plotter.close()
+            print(f"Saved {filename}")
+            if abs(elevation) == 90: break
+
+    print(f"✅ Ground Truth renders complete in: {output_dir}")
+
 def render_pos_views(pos_file, output_dir="renders_pyvista", n_azimuth=12, n_elevation=3, zoom=4.5, suffix=None):
     os.makedirs(output_dir, exist_ok=True)
     coords, vals = read_pos_file(pos_file)
@@ -251,11 +365,8 @@ def render_pos_views(pos_file, output_dir="renders_pyvista", n_azimuth=12, n_ele
 
     cmap = [
         [0.0, [0, 0, 130]],   # White start (replaces blue)
-        [0.03, [255, 255, 255]],  # White continues
-        [0.3, [255, 252, 252]],   # Subtle pinkish-white transition
-        [0.5, [255, 240, 240]],   # Light red
-        [0.75, [255, 200, 200]],  # Medium light red
-        [1.0, [255, 0, 0]]        # Full red
+        [0.991, [255, 255, 255]],  # White continues
+        [1.0, [255, 255, 255]]        # Full red
     ]
     # Convert to matplotlib colormap
     from matplotlib.colors import LinearSegmentedColormap
@@ -543,96 +654,35 @@ def render_mesh_views_with_load(mesh_file, output_dir_prefix="renders_mesh", n_a
 #     #                       n_azimuth=12,
 #     #                       n_elevation=9, orthographic=True, add_axes=False)
 
-def process_single_folder(args):
-    CAD_Folder, path_dir, load_case = args
-
-    try:
-
-        mesh_obj_file = f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj'
-        os.makedirs(f'{path_dir}/{CAD_Folder}/renders_pyvista', exist_ok=True)
-        os.makedirs(f'{path_dir}/{CAD_Folder}/renders_pyvista_mesh_initial', exist_ok=True)
-
-        for file in os.listdir(f'{path_dir}/{CAD_Folder}'):
-            if file.endswith('.obj'):
-                mesh_obj_file = f'{path_dir}/{CAD_Folder}/{file}'
-                shutil.copy(mesh_obj_file, f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj')
-    
-        output_dir = f'{path_dir}/{CAD_Folder}/renders_pyvista_mesh'
-        mesh_obj_file = f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj'
-
-        if not os.path.exists(mesh_obj_file):
-            return f"[SKIP] {CAD_Folder} (no mesh)"
-
-        render_mesh_views_with_load(
-            mesh_obj_file,
-            output_dir_prefix=output_dir,
-            n_azimuth=12,
-            n_elevation=[-90, -72, -54, -36, -18, 0, 18, 36, 54, 72, 90],
-            orthographic=True,
-            add_axes=False,
-            loading_type=load_case,
-            verbose=True
-        )
-
-        return f"[DONE] {CAD_Folder}"
-
-    except Exception as e:
-        return f"[ERROR] {CAD_Folder}: {str(e)}"
-
-if __name__ == '__main__':
-
-    path_dir = './test_meshes_7.04.2026'
-    cad_folders = os.listdir(path_dir)
-    load_cases = ['torsion', 'bending', 'compression']
-    tasks = [(folder, path_dir, load) for folder in cad_folders for load in load_cases]
-
-    # for task in enumerate(tasks):
-    #     print(f"Processing {task[0]} ({task[1]}/{len(tasks)})") 
-    #     result = process_single_folder(task)
-    #     print(result)
-
-    # 🔥 Tune this carefully
-    max_workers = 50   # start safe (VTK + XVFB heavy)
-
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(process_single_folder, task) for task in tasks]
-
-        for f in tqdm(as_completed(futures), total=len(futures)):
-            print(f.result())
-
-
 # def process_single_folder(args):
-#     CAD_Folder, path_dir = args
+#     CAD_Folder, path_dir, load_case = args
 
 #     try:
 
-#         #mesh_obj_file = f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj'
+#         mesh_obj_file = f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj'
 #         os.makedirs(f'{path_dir}/{CAD_Folder}/renders_pyvista', exist_ok=True)
 #         os.makedirs(f'{path_dir}/{CAD_Folder}/renders_pyvista_mesh_initial', exist_ok=True)
 
-#         flag=0
 #         for file in os.listdir(f'{path_dir}/{CAD_Folder}'):
 #             if file.endswith('.obj'):
 #                 mesh_obj_file = f'{path_dir}/{CAD_Folder}/{file}'
 #                 shutil.copy(mesh_obj_file, f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj')
-#                 flag=1
-#                 break
-        
-#         if flag==0:
-#             mesh_obj_file = f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj'
-        
-#         output_dir = f'{path_dir}/{CAD_Folder}/renders_pyvista_mesh_initial'
+    
+#         output_dir = f'{path_dir}/{CAD_Folder}/renders_pyvista_mesh_{load_case}'
+#         mesh_obj_file = f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj'
 
 #         if not os.path.exists(mesh_obj_file):
 #             return f"[SKIP] {CAD_Folder} (no mesh)"
 
-#         render_mesh_views(
+#         render_mesh_views_with_load(
 #             mesh_obj_file,
-#             output_dir=output_dir,
+#             output_dir_prefix=output_dir,
 #             n_azimuth=12,
-#             n_elevation=[-90,90],
+#             n_elevation=[-90, -72, -54, -36, -18, 0, 18, 36, 54, 72, 90],
 #             orthographic=True,
-#             add_axes=False
+#             add_axes=False,
+#             loading_type=load_case,
+#             verbose=True
 #         )
 
 #         return f"[DONE] {CAD_Folder}"
@@ -642,21 +692,146 @@ if __name__ == '__main__':
 
 # if __name__ == '__main__':
 
-#     # path_dir = '/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/test_meshes_rebuttal'
-#     # cad_folders = os.listdir(path_dir)
-#     # tasks = [(folder, path_dir) for folder in cad_folders]
+#     path_dir = './test_meshes'
+#     cad_folders = os.listdir(path_dir)
+#     load_cases = ['torsion', 'bending', 'compression']
+#     tasks = [(folder, path_dir, load) for folder in cad_folders for load in load_cases]
 
-#     tasks = []
-#     with open('/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/val.log', 'r') as log_file:
-#         for line in log_file:
-#             folder_path = line.strip()
-#             tasks.append((os.path.basename(folder_path), os.path.dirname(folder_path)))
-    
+#     # for task in enumerate(tasks):
+#     #     print(f"Processing {task[0]} ({task[1]}/{len(tasks)})") 
+#     #     result = process_single_folder(task)
+#     #     print(result)
+
 #     # 🔥 Tune this carefully
-#     max_workers = 10   # start safe (VTK + XVFB heavy)
+#     max_workers = 50   # start safe (VTK + XVFB heavy)
 
 #     with ProcessPoolExecutor(max_workers=max_workers) as executor:
 #         futures = [executor.submit(process_single_folder, task) for task in tasks]
 
 #         for f in tqdm(as_completed(futures), total=len(futures)):
 #             print(f.result())
+
+
+def process_single_folder(args):
+    CAD_Folder, path_dir = args
+
+    try:
+
+        #mesh_obj_file = f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj'
+        os.makedirs(f'{path_dir}/{CAD_Folder}/renders_pyvista', exist_ok=True)
+        os.makedirs(f'{path_dir}/{CAD_Folder}/renders_pyvista_mesh_initial', exist_ok=True)
+
+        flag=0
+        for file in os.listdir(f'{path_dir}/{CAD_Folder}'):
+            if file.endswith('.obj'):
+                mesh_obj_file = f'{path_dir}/{CAD_Folder}/{file}'
+                shutil.copy(mesh_obj_file, f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj')
+                flag=1
+                break
+        
+        if flag==0:
+            mesh_obj_file = f'{path_dir}/{CAD_Folder}/renders_pyvista/{CAD_Folder}.obj'
+        
+        output_dir = f'{path_dir}/{CAD_Folder}/renders_pyvista_mesh_initial'
+
+        if not os.path.exists(mesh_obj_file):
+            return f"[SKIP] {CAD_Folder} (no mesh)"
+
+        render_mesh_views(
+            mesh_obj_file,
+            output_dir=output_dir,
+            n_azimuth=12,
+            n_elevation=[-90, -72, -54, -36, -18, 0, 18, 36, 54, 72, 90],
+            orthographic=True,
+            add_axes=False
+        )
+
+        return f"[DONE] {CAD_Folder}"
+
+    except Exception as e:
+        return f"[ERROR] {CAD_Folder}: {str(e)}"
+
+
+def process_single_folder_perspective(args):
+    """
+    Re-render the mesh views in `renders_pyvista_mesh_initial` for a single CAD folder
+    using perspective projection (orthographic=False) and opacity=0.7.
+
+    Existing PNGs in `renders_pyvista_mesh_initial` are wiped first so only the new
+    perspective renders remain.
+    """
+    CAD_Folder, path_dir = args
+
+    try:
+        cad_dir = f'{path_dir}/{CAD_Folder}'
+        renders_dir = f'{cad_dir}/renders_pyvista'
+        output_dir = f'{cad_dir}/renders_pyvista_mesh_initial'
+
+        os.makedirs(renders_dir, exist_ok=True)
+
+        # Locate the mesh .obj file (prefer one already inside renders_pyvista/)
+        mesh_obj_file = f'{renders_dir}/{CAD_Folder}.obj'
+        if not os.path.exists(mesh_obj_file):
+            for file in os.listdir(cad_dir):
+                if file.endswith('.obj'):
+                    src = f'{cad_dir}/{file}'
+                    shutil.copy(src, mesh_obj_file)
+                    break
+
+        if not os.path.exists(mesh_obj_file):
+            return f"[SKIP] {CAD_Folder} (no mesh)"
+
+        # Wipe previous renders so we don't mix orthographic and perspective images
+        if os.path.isdir(output_dir):
+            shutil.rmtree(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
+
+        render_mesh_views(
+            mesh_obj_file,
+            output_dir=output_dir,
+            n_azimuth=12,
+            n_elevation=[-90, -72, -54, -36, -18, 0, 18, 36, 54, 72, 90],
+            orthographic=False,
+            add_axes=False,
+            opacity=0.7,
+        )
+
+        return f"[DONE] {CAD_Folder}"
+
+    except Exception as e:
+        return f"[ERROR] {CAD_Folder}: {str(e)}"
+
+
+def regenerate_perspective_renders(path_dir, max_workers=50):
+    """Run perspective re-rendering in parallel for every CAD subfolder of path_dir."""
+    cad_folders = sorted(os.listdir(path_dir))
+    tasks = [(folder_name, path_dir) for folder_name in cad_folders]
+
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(process_single_folder_perspective, task) for task in tasks]
+        for f in tqdm(as_completed(futures), total=len(futures)):
+            print(f.result())
+
+if __name__ == '__main__':
+
+    # path_dir = '/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/test_meshes_rebuttal'
+    # cad_folders = os.listdir(path_dir)
+    # tasks = [(folder, path_dir) for folder in cad_folders]
+
+    path_dir = './test_meshes'
+    cad_folders = os.listdir(path_dir)
+    tasks = [(folder_name, path_dir) for folder_name in cad_folders]
+    # tasks = []
+    # with open('/data/1bali/Other_LLM_projects/multi_view_3DQA/ortho_views/GReFEM/val.log', 'r') as log_file:
+    #     for line in log_file:
+    #         folder_path = line.strip()
+    #         tasks.append((os.path.basename(folder_path), os.path.dirname(folder_path)))
+    
+    # 🔥 Tune this carefully
+    max_workers = 50   # start safe (VTK + XVFB heavy)
+
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(process_single_folder, task) for task in tasks]
+
+        for f in tqdm(as_completed(futures), total=len(futures)):
+            print(f.result())
