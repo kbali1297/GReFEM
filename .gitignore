@@ -80,3 +80,4 @@ old_files/
 !amber_train_pool.json
 !cad_element_sizes.json
 !hf_dataset/**
+!assets/**

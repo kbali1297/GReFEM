@@ -25,18 +25,23 @@ those 2D selections into a 3D volumetric sizing field. To bridge 2D MLLM
 pre-training and 3D geometry, we introduce **orthoViews**, a supervised
 view-selection module that maximizes the observability of key geometric features.
 
-```
-CAD (STEP) ──► orthoViews (view selection) ──► rendered views + physics prompt
-                                                      │
-                                                      ▼
-                                            MLLM anchor prediction (2D)
-                                                      │
-                                    MV-RaySeg (2D → 3D volumetric anchors)
-                                                      │
-                                      distance-based sizing field ──► gmsh mesh
-                                                      │
-                                             FEM solve (dolfinx)
-```
+![GReFEM pipeline](assets/GReFEM_main_figure.png)
+
+*The GReFEM pipeline: the top orthoViews-selected views are processed by the
+Region Proposal and Feature Detection stages; the resulting 2D points are lifted
+to 3D refinement anchors via MV-RaySeg, which drive a distance-based sizing field
+for gmsh mesh generation and the downstream FEM solve (dolfinx).*
+
+<details>
+<summary><b>orthoViews view-selection module</b></summary>
+
+![orthoViews](assets/GReFEM_orthoviews.png)
+
+*orthoViews performs self-attention across the V candidate views of each CAD
+geometry, allowing each view embedding to aggregate information from all other
+views before being scored by a per-view MLP.*
+
+</details>
 
 ## Repository structure
 
