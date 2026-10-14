@@ -1,0 +1,101 @@
+num_views_inference,llm_model,prompt_type,matched_refine,num_refine,matched_stress,num_stress,micro_F1,label,view_type
+1,claude-haiku-4.5,geo_max,56355.0,104980.0,503814.0,1423823.0,0.4265372343410431,Claude-Haiku-4.5 | Load+Features+Heuristics,ortho
+1,claude-haiku-4.5,geo_mid,56165.0,102860.0,538831.0,1423823.0,0.44704532578244344,Claude-Haiku-4.5 | Load+Features,ortho
+1,gemini-3-flash-preview,geo_max,52599.0,90312.0,502691.0,1423823.0,0.4396191041032453,Gemini-3-flash | Load+Features+Heuristics,ortho
+1,gemini-3-flash-preview,geo_mid,53377.0,90920.0,529856.0,1423823.0,0.45552442079220545,Gemini-3-flash | Load+Features,ortho
+1,gpt-5.4-mini,geo_max,54135.0,91513.0,617646.0,1423823.0,0.5005380499320108,GPT-5.4-mini | Load+Features+Heuristics,ortho
+1,gpt-5.4-mini,geo_mid,53407.0,89578.0,566792.0,1423823.0,0.47740171461036085,GPT-5.4-mini | Load+Features,ortho
+1,qwen3-vl-235b-a22b-instruct,geo_max,41819.0,73176.0,473983.0,1408297.0,0.4236369136936217,Qwen3-VL-235B | Load+Features+Heuristics,ortho
+1,qwen3-vl-235b-a22b-instruct,geo_mid,45947.0,80608.0,507757.0,1408849.0,0.44159651856718873,Qwen3-VL-235B | Load+Features,ortho
+2,claude-haiku-4.5,geo_max,82730.0,156093.0,658907.0,1423823.0,0.494112355522886,Claude-Haiku-4.5 | Load+Features+Heuristics,ortho
+2,claude-haiku-4.5,geo_mid,84807.0,153333.0,694415.0,1423823.0,0.5183475626004173,Claude-Haiku-4.5 | Load+Features,ortho
+2,gemini-3-flash-preview,geo_max,79871.0,137572.0,723643.0,1423823.0,0.5420048372392612,Gemini-3-flash | Load+Features+Heuristics,ortho
+2,gemini-3-flash-preview,geo_mid,80606.0,140216.0,720367.0,1423823.0,0.5382062413872023,Gemini-3-flash | Load+Features,ortho
+2,gpt-5.4-mini,geo_max,74116.0,123427.0,709290.0,1423823.0,0.5445564490878572,GPT-5.4-mini | Load+Features+Heuristics,ortho
+2,gpt-5.4-mini,geo_mid,75666.0,134383.0,745702.0,1423823.0,0.5426856041632718,GPT-5.4-mini | Load+Features,ortho
+2,qwen3-vl-235b-a22b-instruct,geo_max,67917.0,114969.0,683360.0,1423823.0,0.5296120827055396,Qwen3-VL-235B | Load+Features+Heuristics,ortho
+2,qwen3-vl-235b-a22b-instruct,geo_mid,69912.0,122290.0,655584.0,1423823.0,0.5100689983009387,Qwen3-VL-235B | Load+Features,ortho
+3,claude-haiku-4.5,geo_max,92018.0,160169.0,759498.0,1423823.0,0.5532019224053444,Claude-Haiku-4.5 | Load+Features+Heuristics,ortho
+3,claude-haiku-4.5,geo_mid,96141.0,171643.0,819633.0,1423823.0,0.5677829650187216,Claude-Haiku-4.5 | Load+Features,ortho
+3,gemini-3-flash-preview,geo_max,106770.0,183339.0,826782.0,1423823.0,0.5815194434237914,Gemini-3-flash | Load+Features+Heuristics,ortho
+3,gemini-3-flash-preview,geo_mid,93554.0,162150.0,829864.0,1423823.0,0.5798859390928108,Gemini-3-flash | Load+Features,ortho
+3,gpt-5.4-mini,geo_max,74508.0,133001.0,769333.0,1423823.0,0.5500882018708703,GPT-5.4-mini | Load+Features+Heuristics,ortho
+3,gpt-5.4-mini,geo_mid,83717.0,145419.0,860585.0,1423823.0,0.5897072350923875,GPT-5.4-mini | Load+Features,ortho
+3,qwen3-vl-235b-a22b-instruct,geo_max,73188.0,126543.0,698769.0,1388049.0,0.5382952154719639,Qwen3-VL-235B | Load+Features+Heuristics,ortho
+3,qwen3-vl-235b-a22b-instruct,geo_mid,83425.0,142223.0,831401.0,1423823.0,0.5852471940285205,Qwen3-VL-235B | Load+Features,ortho
+4,claude-haiku-4.5,geo_max,102103.0,179494.0,818145.0,1423823.0,0.5717101275511453,Claude-Haiku-4.5 | Load+Features+Heuristics,ortho
+4,claude-haiku-4.5,geo_mid,116994.0,211480.0,931157.0,1423823.0,0.5993938535351055,Claude-Haiku-4.5 | Load+Features,ortho
+4,gemini-3-flash-preview,geo_max,108459.0,193759.0,885607.0,1423823.0,0.5892388809462347,Gemini-3-flash | Load+Features+Heuristics,ortho
+4,gemini-3-flash-preview,geo_mid,114162.0,198535.0,912010.0,1423823.0,0.6060135760948234,Gemini-3-flash | Load+Features,ortho
+4,gpt-5.4-mini,geo_max,102298.0,184824.0,942377.0,1423823.0,0.6028442949824024,GPT-5.4-mini | Load+Features+Heuristics,ortho
+4,gpt-5.4-mini,geo_mid,100160.0,178525.0,919155.0,1423823.0,0.6003383567100486,GPT-5.4-mini | Load+Features,ortho
+4,qwen3-vl-235b-a22b-instruct,geo_max,99098.0,177589.0,888527.0,1408849.0,0.5921267874624835,Qwen3-VL-235B | Load+Features+Heuristics,ortho
+4,qwen3-vl-235b-a22b-instruct,geo_mid,96524.0,169350.0,845798.0,1423823.0,0.5817515381264081,Qwen3-VL-235B | Load+Features,ortho
+5,claude-haiku-4.5,geo_max,115253.0,208296.0,886165.0,1423823.0,0.585819992609068,Claude-Haiku-4.5 | Load+Features+Heuristics,ortho
+5,claude-haiku-4.5,geo_mid,130519.0,239929.0,969533.0,1423823.0,0.6048080025290423,Claude-Haiku-4.5 | Load+Features,ortho
+5,gemini-3-flash-preview,geo_max,127316.0,231330.0,957487.0,1423823.0,0.6053238196400905,Gemini-3-flash | Load+Features+Heuristics,ortho
+5,gemini-3-flash-preview,geo_mid,126645.0,222044.0,998178.0,1423823.0,0.6289899998120548,Gemini-3-flash | Load+Features,ortho
+5,gpt-5.4-mini,geo_max,108489.0,192216.0,964213.0,1423823.0,0.6156831366856569,GPT-5.4-mini | Load+Features+Heuristics,ortho
+5,gpt-5.4-mini,geo_mid,106283.0,204033.0,998567.0,1423823.0,0.5978035596238301,GPT-5.4-mini | Load+Features,ortho
+5,qwen3-vl-235b-a22b-instruct,geo_max,115791.0,207462.0,944859.0,1393323.0,0.6123080869662734,Qwen3-VL-235B | Load+Features+Heuristics,ortho
+5,qwen3-vl-235b-a22b-instruct,geo_mid,104729.0,189108.0,880289.0,1408297.0,0.5872850882924782,Qwen3-VL-235B | Load+Features,ortho
+6,claude-haiku-4.5,geo_max,113037.0,207237.0,885879.0,1423823.0,0.5812941882085618,Claude-Haiku-4.5 | Load+Features+Heuristics,ortho
+6,claude-haiku-4.5,geo_mid,134770.0,248170.0,999271.0,1423823.0,0.6123145123100445,Claude-Haiku-4.5 | Load+Features,ortho
+6,gemini-3-flash-preview,geo_max,125579.0,229213.0,982818.0,1423823.0,0.6108802172527616,Gemini-3-flash | Load+Features+Heuristics,ortho
+6,gemini-3-flash-preview,geo_mid,132391.0,238538.0,971778.0,1423823.0,0.6121932766798375,Gemini-3-flash | Load+Features,ortho
+6,gpt-5.4-mini,geo_max,120273.0,228036.0,978974.0,1423823.0,0.5969454455824079,GPT-5.4-mini | Load+Features+Heuristics,ortho
+6,gpt-5.4-mini,geo_mid,118078.0,218206.0,987113.0,1423823.0,0.6078300919877143,GPT-5.4-mini | Load+Features,ortho
+6,qwen3-vl-235b-a22b-instruct,geo_max,119557.0,222497.0,970349.0,1423823.0,0.6008996557992056,Qwen3-VL-235B | Load+Features+Heuristics,ortho
+6,qwen3-vl-235b-a22b-instruct,geo_mid,110158.0,201908.0,916891.0,1408153.0,0.5937033669541649,Qwen3-VL-235B | Load+Features,ortho
+7,claude-haiku-4.5,geo_max,115304.0,210514.0,864320.0,1423823.0,0.5758604913083976,Claude-Haiku-4.5 | Load+Features+Heuristics,ortho
+7,claude-haiku-4.5,geo_mid,148944.0,275914.0,1006570.0,1423823.0,0.6121828833465511,Claude-Haiku-4.5 | Load+Features,ortho
+7,gemini-3-flash-preview,geo_max,142484.0,259666.0,1004145.0,1423823.0,0.6172138888164587,Gemini-3-flash | Load+Features+Heuristics,ortho
+7,gemini-3-flash-preview,geo_mid,144302.0,260388.0,1037744.0,1423823.0,0.6296233089989121,Gemini-3-flash | Load+Features,ortho
+7,gpt-5.4-mini,geo_max,122121.0,234800.0,997190.0,1423823.0,0.5969225436174506,GPT-5.4-mini | Load+Features+Heuristics,ortho
+7,gpt-5.4-mini,geo_mid,117805.0,217749.0,987133.0,1423823.0,0.607761015676682,GPT-5.4-mini | Load+Features,ortho
+7,qwen3-vl-235b-a22b-instruct,geo_max,125838.0,233354.0,982348.0,1423823.0,0.6053620456230718,Qwen3-VL-235B | Load+Features+Heuristics,ortho
+7,qwen3-vl-235b-a22b-instruct,geo_mid,114679.0,210679.0,892825.0,1423823.0,0.5827746215338035,Qwen3-VL-235B | Load+Features,ortho
+8,claude-haiku-4.5,geo_max,119569.0,221969.0,929986.0,1423823.0,0.5904190125593817,Claude-Haiku-4.5 | Load+Features+Heuristics,ortho
+8,claude-haiku-4.5,geo_mid,148046.0,282895.0,994555.0,1423823.0,0.5983586517133342,Claude-Haiku-4.5 | Load+Features,ortho
+8,gemini-3-flash-preview,geo_max,143151.0,262273.0,1026820.0,1423823.0,0.6213542480025649,Gemini-3-flash | Load+Features+Heuristics,ortho
+8,gemini-3-flash-preview,geo_mid,157308.0,291978.0,1055141.0,1423823.0,0.6239264278603673,Gemini-3-flash | Load+Features,ortho
+8,gpt-5.4-mini,geo_max,135001.0,268685.0,1038122.0,1423823.0,0.5949226139009263,GPT-5.4-mini | Load+Features+Heuristics,ortho
+8,gpt-5.4-mini,geo_mid,142596.0,258971.0,990361.0,1423823.0,0.614666369806053,GPT-5.4-mini | Load+Features,ortho
+8,qwen3-vl-235b-a22b-instruct,geo_max,129544.0,239164.0,967584.0,1408535.0,0.6057076958593203,Qwen3-VL-235B | Load+Features+Heuristics,ortho
+8,qwen3-vl-235b-a22b-instruct,geo_mid,128210.0,241222.0,952108.0,1408733.0,0.5950514676044475,Qwen3-VL-235B | Load+Features,ortho
+9,claude-haiku-4.5,geo_max,117638.0,216045.0,901078.0,1423823.0,0.5853675406910499,Claude-Haiku-4.5 | Load+Features+Heuristics,ortho
+9,claude-haiku-4.5,geo_mid,141233.0,264395.0,990693.0,1423823.0,0.6043670362034819,Claude-Haiku-4.5 | Load+Features,ortho
+9,gemini-3-flash-preview,geo_max,149047.0,276670.0,991628.0,1408600.0,0.6103604161668054,Gemini-3-flash | Load+Features+Heuristics,ortho
+9,gemini-3-flash-preview,geo_mid,157152.0,289416.0,1035612.0,1423823.0,0.6217953315729394,Gemini-3-flash | Load+Features,ortho
+9,gpt-5.4-mini,geo_max,141611.0,271913.0,1034204.0,1423823.0,0.6066353283965572,GPT-5.4-mini | Load+Features+Heuristics,ortho
+9,gpt-5.4-mini,geo_mid,130172.0,259018.0,989412.0,1423823.0,0.5832819875936093,GPT-5.4-mini | Load+Features,ortho
+9,qwen3-vl-235b-a22b-instruct,geo_max,134998.0,256907.0,1000470.0,1409805.0,0.6038308762016112,Qwen3-VL-235B | Load+Features+Heuristics,ortho
+9,qwen3-vl-235b-a22b-instruct,geo_mid,143828.0,282244.0,1000122.0,1408153.0,0.5934096608919742,Qwen3-VL-235B | Load+Features,ortho
+10,claude-haiku-4.5,geo_max,128461.0,234441.0,908605.0,1423823.0,0.5896156268789164,Claude-Haiku-4.5 | Load+Features+Heuristics,ortho
+10,claude-haiku-4.5,geo_mid,154902.0,293364.0,1010742.0,1423823.0,0.605590956645359,Claude-Haiku-4.5 | Load+Features,ortho
+10,gemini-3-flash-preview,geo_max,161507.0,298893.0,1011052.0,1423823.0,0.6137022481849626,Gemini-3-flash | Load+Features+Heuristics,ortho
+10,gemini-3-flash-preview,geo_mid,172069.0,329501.0,1101985.0,1423823.0,0.6236380787558838,Gemini-3-flash | Load+Features,ortho
+10,gpt-5.4-mini,geo_max,150592.0,303166.0,1019382.0,1423823.0,0.5865253039931878,GPT-5.4-mini | Load+Features+Heuristics,ortho
+10,gpt-5.4-mini,geo_mid,123423.0,243036.0,970944.0,1423823.0,0.5821463533917999,GPT-5.4-mini | Load+Features,ortho
+10,qwen3-vl-235b-a22b-instruct,geo_max,139588.0,259663.0,1010307.0,1394551.0,0.6171822208460441,Qwen3-VL-235B | Load+Features+Heuristics,ortho
+10,qwen3-vl-235b-a22b-instruct,geo_mid,121412.0,247770.0,920151.0,1409906.0,0.5597549058635977,Qwen3-VL-235B | Load+Features,ortho
+1,gemini-3-flash-preview,geo_max,19060.0,39006.0,335051.0,1423823.0,0.3176591950217155,"Gemini-3-flash | Load+Features+Heuristics, random views",random
+1,gemini-3-flash-preview,geo_mid,23014.0,49875.0,375111.0,1423823.0,0.3354074417767374,"Gemini-3-flash | Load+Features, random views",random
+2,gemini-3-flash-preview,geo_max,44079.0,88025.0,569107.0,1423823.0,0.44455930373112285,"Gemini-3-flash | Load+Features+Heuristics, random views",random
+2,gemini-3-flash-preview,geo_mid,40067.0,83952.0,547964.0,1423823.0,0.42610504985754877,"Gemini-3-flash | Load+Features, random views",random
+3,gemini-3-flash-preview,geo_max,51914.0,117936.0,683620.0,1423823.0,0.4592921550255056,"Gemini-3-flash | Load+Features+Heuristics, random views",random
+3,gemini-3-flash-preview,geo_mid,63326.0,133701.0,760672.0,1423823.0,0.5021203106286244,"Gemini-3-flash | Load+Features, random views",random
+4,gemini-3-flash-preview,geo_max,80947.0,160699.0,798477.0,1423823.0,0.5307277121158916,"Gemini-3-flash | Load+Features+Heuristics, random views",random
+4,gemini-3-flash-preview,geo_mid,77607.0,155690.0,804942.0,1423823.0,0.5298034105733288,"Gemini-3-flash | Load+Features, random views",random
+5,gemini-3-flash-preview,geo_max,85694.0,174891.0,820197.0,1423823.0,0.5295445524884195,"Gemini-3-flash | Load+Features+Heuristics, random views",random
+5,gemini-3-flash-preview,geo_mid,89619.0,180782.0,867658.0,1423823.0,0.5467133576457233,"Gemini-3-flash | Load+Features, random views",random
+6,gemini-3-flash-preview,geo_max,99951.0,209630.0,847010.0,1423823.0,0.5293348459949913,"Gemini-3-flash | Load+Features+Heuristics, random views",random
+6,gemini-3-flash-preview,geo_mid,101516.0,206973.0,914807.0,1423823.0,0.5562910231588273,"Gemini-3-flash | Load+Features, random views",random
+7,gemini-3-flash-preview,geo_max,116644.0,245962.0,903688.0,1423823.0,0.5428550663642246,"Gemini-3-flash | Load+Features+Heuristics, random views",random
+7,gemini-3-flash-preview,geo_mid,110303.0,222491.0,962158.0,1423823.0,0.5719332238636815,"Gemini-3-flash | Load+Features, random views",random
+8,gemini-3-flash-preview,geo_max,122772.0,252284.0,983614.0,1423823.0,0.5710303281357487,"Gemini-3-flash | Load+Features+Heuristics, random views",random
+8,gemini-3-flash-preview,geo_mid,125356.0,261136.0,984445.0,1423823.0,0.5666564033420622,"Gemini-3-flash | Load+Features, random views",random
+9,gemini-3-flash-preview,geo_max,132442.0,261161.0,959127.0,1423823.0,0.5786386560128114,"Gemini-3-flash | Load+Features+Heuristics, random views",random
+9,gemini-3-flash-preview,geo_mid,141805.0,301588.0,1001658.0,1423823.0,0.5636587860112227,"Gemini-3-flash | Load+Features, random views",random
+10,gemini-3-flash-preview,geo_max,141290.0,307150.0,996941.0,1423823.0,0.5552332894964583,"Gemini-3-flash | Load+Features+Heuristics, random views",random
+10,gemini-3-flash-preview,geo_mid,159845.0,321449.0,1078749.0,1423823.0,0.6004405002274361,"Gemini-3-flash | Load+Features, random views",random

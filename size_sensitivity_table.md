@@ -8,32 +8,32 @@ Sizing field scaled by a common factor applied to both `h_min` and `h_max` for e
 
 | sizing | Coarse (no refinement) | GReFEM (zero-shot) | Geometric heuristic | Load-informed heuristic | ZZ from coarse solve | ZZ oracle (ceiling) |
 |---|---|---|---|---|---|---|
-| **h × 1.0** | 25.3k | 95.8k | 94.4k | 88.5k | 93.0k | 82.7k |
-| **h × 1.25** | 25.3k | 57.4k | 57.3k | 54.7k | 56.1k | 52.5k |
-| **h × 1.6** | 25.3k | 33.4k | 33.4k | 32.2k | 32.8k | 31.2k |
-| **h × 2.0** | 25.3k | 20.7k | 20.7k | 20.2k | 20.3k | 19.6k |
+| **h × 1.0** | 24.9k | 95.4k | 94.0k | 88.1k | 92.5k | 82.3k |
+| **h × 1.25** | 24.9k | 57.1k | 56.9k | 54.4k | 55.8k | 52.2k |
+| **h × 1.6** | 24.9k | 33.2k | 33.2k | 31.9k | 32.6k | 31.0k |
+| **h × 2.0** | 24.9k | 20.6k | 20.5k | 20.0k | 20.2k | 19.4k |
 
-Refined candidates agree to within 5.8–15.8 % at every level (budget matching holds; `coarse` is the unrefined mesh and is not budget-matched).
+Refined candidates agree to within 5.9–15.8 % at every level (budget matching holds; `coarse` is the unrefined mesh and is not budget-matched).
 
 ### Peak stress (rel. σ_vM^p99 error in Ω_crit)
 
 | sizing | mean cells | Coarse (no refinement) | GReFEM (zero-shot) | Geometric heuristic | Load-informed heuristic | ZZ from coarse solve | ZZ oracle (ceiling) |
 |---|---|---|---|---|---|---|---|
-| **h × 1.0** | 91k | 0.737 | 0.629 | 0.672 | 0.566 | 0.671 | **0.551** |
-| **h × 1.25** | 56k | 0.737 | 0.692 | 0.688 | 0.628 | 0.715 | **0.609** |
-| **h × 1.6** | 33k | 0.737 | 0.723 | 0.745 | **0.687** | 0.728 | 0.701 |
-| **h × 2.0** | 20k | 0.737 | 0.754 | 0.764 | 0.733 | 0.758 | **0.727** |
-| *Δ (h×2.0 − h×1.0)* | | *+0.000* | *+0.125* | *+0.092* | *+0.167* | *+0.087* | *+0.176* |
+| **h × 1.0** | 90k | 0.738 | 0.627 | 0.673 | 0.566 | 0.673 | **0.550** |
+| **h × 1.25** | 55k | 0.738 | 0.692 | 0.687 | 0.627 | 0.717 | **0.608** |
+| **h × 1.6** | 32k | 0.738 | 0.724 | 0.745 | **0.686** | 0.728 | 0.700 |
+| **h × 2.0** | 20k | 0.738 | 0.756 | 0.766 | 0.734 | 0.760 | **0.728** |
+| *Δ (h×2.0 − h×1.0)* | | *+0.000* | *+0.129* | *+0.093* | *+0.168* | *+0.087* | *+0.178* |
 
 ### Strain energy (rel. error in Ω_crit)
 
 | sizing | mean cells | Coarse (no refinement) | GReFEM (zero-shot) | Geometric heuristic | Load-informed heuristic | ZZ from coarse solve | ZZ oracle (ceiling) |
 |---|---|---|---|---|---|---|---|
-| **h × 1.0** | 91k | 0.943 | 0.881 | 0.891 | 0.868 | 0.886 | **0.851** |
-| **h × 1.25** | 56k | 0.943 | 0.906 | 0.895 | 0.891 | 0.905 | **0.868** |
-| **h × 1.6** | 33k | 0.943 | 0.927 | 0.934 | **0.915** | 0.925 | 0.915 |
-| **h × 2.0** | 20k | 0.943 | 0.940 | 0.942 | **0.928** | 0.943 | 0.931 |
-| *Δ (h×2.0 − h×1.0)* | | *+0.000* | *+0.059* | *+0.051* | *+0.060* | *+0.057* | *+0.080* |
+| **h × 1.0** | 90k | 0.944 | 0.880 | 0.892 | 0.869 | 0.887 | **0.850** |
+| **h × 1.25** | 55k | 0.944 | 0.906 | 0.895 | 0.890 | 0.905 | **0.869** |
+| **h × 1.6** | 32k | 0.944 | 0.928 | 0.934 | **0.915** | 0.926 | 0.915 |
+| **h × 2.0** | 20k | 0.944 | 0.941 | 0.943 | **0.928** | 0.944 | 0.931 |
+| *Δ (h×2.0 − h×1.0)* | | *+0.000* | *+0.061* | *+0.051* | *+0.059* | *+0.057* | *+0.081* |
 
 ### Paired tests at each sizing level (vm_p99)
 
@@ -41,16 +41,16 @@ Median Δ = GReFEM − baseline; negative means GReFEM is better. Two-sided Wilc
 
 | sizing | Coarse (no refinement) | Geometric heuristic | Load-informed heuristic | ZZ from coarse solve | ZZ oracle (ceiling) |
 |---|---|---|---|---|---|
-| **h × 1.0** | -0.081* (p=1.1e-31) | -0.025* (p=4.3e-10) | +0.041* (p=3.3e-10) | -0.037* (p=4e-10) | +0.037* (p=6.2e-12) |
-| **h × 1.25** | -0.042* (p=2.7e-08) | -0.004 (p=0.6) | +0.026* (p=6.4e-11) | -0.023* (p=3.2e-05) | +0.045* (p=1.8e-15) |
-| **h × 1.6** | -0.008 (p=0.084) | -0.007* (p=0.00046) | +0.015* (p=3.3e-06) | -0.000 (p=0.21) | +0.006* (p=0.0004) |
-| **h × 2.0** | +0.003 (p=0.076) | -0.000 (p=0.077) | +0.002* (p=0.0012) | +0.000 (p=0.35) | +0.006* (p=6.2e-05) |
+| **h × 1.0** | -0.082* (p=1.9e-33) | -0.026* (p=8.4e-11) | +0.039* (p=5.5e-10) | -0.039* (p=3.2e-11) | +0.037* (p=7.3e-12) |
+| **h × 1.25** | -0.042* (p=1.9e-08) | -0.003 (p=0.66) | +0.028* (p=1.3e-11) | -0.023* (p=2.3e-05) | +0.045* (p=6e-16) |
+| **h × 1.6** | -0.008 (p=0.081) | -0.007* (p=0.00059) | +0.016* (p=1.3e-06) | -0.000 (p=0.23) | +0.008* (p=0.00016) |
+| **h × 2.0** | +0.003 (p=0.063) | -0.000 (p=0.075) | +0.001* (p=0.0008) | +0.000 (p=0.37) | +0.005* (p=5.5e-05) |
 
 `*` = significant at p < 0.05.
 
 ### Ranking stability
 
-- **h × 1.0**: ZZ oracle (ceiling) < Load-informed heuristic < GReFEM (zero-shot) < ZZ from coarse solve < Geometric heuristic < Coarse (no refinement)
+- **h × 1.0**: ZZ oracle (ceiling) < Load-informed heuristic < GReFEM (zero-shot) < Geometric heuristic < ZZ from coarse solve < Coarse (no refinement)
 - **h × 1.25**: ZZ oracle (ceiling) < Load-informed heuristic < Geometric heuristic < GReFEM (zero-shot) < ZZ from coarse solve < Coarse (no refinement)
 - **h × 1.6**: Load-informed heuristic < ZZ oracle (ceiling) < GReFEM (zero-shot) < ZZ from coarse solve < Coarse (no refinement) < Geometric heuristic
 - **h × 2.0**: ZZ oracle (ceiling) < Load-informed heuristic < Coarse (no refinement) < GReFEM (zero-shot) < ZZ from coarse solve < Geometric heuristic

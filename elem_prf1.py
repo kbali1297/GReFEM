@@ -156,6 +156,14 @@ def crit_radius_map():
         cr = grp["crit_radius"].dropna()
         if len(cr) and (o, lc) not in rmap:
             rmap[(o, lc)] = float(cr.iloc[0])
+    for p in glob.glob("add2_shards/hs1.0/base_*.csv"):
+        if p.endswith("_aggregated.csv"):
+            continue
+        df = pd.read_csv(p, dtype={"object": str})
+        for (o, lc), grp in df.groupby(["object", "load_case"]):
+            cr = grp["crit_radius"].dropna()
+            if len(cr) and (o, lc) not in rmap:
+                rmap[(o, lc)] = float(cr.iloc[0])
     return rmap
 
 

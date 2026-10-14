@@ -97,7 +97,7 @@ def main():
                           float(os.path.basename(d.rstrip("/"))[2:]), win))
     frames.append(raw(["fine2ref_shards/*.csv", "mb2_shards/*.csv",
                        "spread_shards/*.csv"], 1.0, orig))
-    for d in sorted(glob.glob("orig_shards/hs*/")):
+    for d in sorted(glob.glob("orig_shards/hs*/")) + sorted(glob.glob("add2_shards/hs*/")):
         frames.append(raw([d + "*.csv"],
                           float(os.path.basename(d.rstrip("/"))[2:]), orig))
     for d in sorted(glob.glob("czz_shards/hs*/")):

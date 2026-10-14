@@ -150,7 +150,8 @@ def main():
 
     MAIN = ["winners_shards/*.csv", "mb2_shards/*.csv", "f2x_shards/*.csv",
             "spread_shards/*.csv", "fine2ref_shards/*.csv",
-            "orig_shards/hs1.0/*.csv", "czz_shards/hs1.0/*.csv"]
+            "orig_shards/hs1.0/*.csv", "czz_shards/hs1.0/*.csv",
+            "add2_shards/hs1.0/*.csv"]
     d_win = strict(raw(MAIN, win, "winners (post-hoc)"))
     d_org = strict(raw(MAIN, orig, "original paper set"))
 
